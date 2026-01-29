@@ -1,0 +1,141 @@
+/* 警务主题配色方案 */
+:root {
+  /* 主色调 - 藏蓝 */
+  --police-blue: #003366;
+  --police-blue-light: #004080;
+  --police-blue-dark: #00264d;
+  
+  /* 点缀色 - 警红 */
+  --police-red: #ff3b30;
+  --police-red-light: #ff4c40;
+  --police-red-dark: #e63228;
+  
+  /* 底色 - 白色 */
+  --police-white: #ffffff;
+  --police-gray-light: #f5f5f5;
+  --police-gray: #e0e0e0;
+  --police-gray-dark: #9e9e9e;
+  
+  /* 字体 */
+  --font-title: "方正大黑", "SimHei", sans-serif;
+  --font-body: "仿宋_GB2312", "FangSong", serif;
+}
+
+/* 全局样式 */
+body {
+  font-family: var(--font-body);
+  background-color: var(--police-gray-light);
+  color: #333;
+  margin: 0;
+  padding: 0;
+}
+
+/* 标题样式 */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-title);
+  color: var(--police-blue);
+  margin-top: 0;
+}
+
+/* 卡片样式 */
+.el-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 51, 102, 0.1);
+  border: 1px solid var(--police-gray);
+}
+
+.el-card__header {
+  background-color: var(--police-white);
+  border-bottom: 1px solid var(--police-gray);
+  padding: 15px 20px;
+}
+
+/* 按钮样式 */
+.el-button--primary {
+  background-color: var(--police-blue);
+  border-color: var(--police-blue);
+}
+
+.el-button--primary:hover,
+.el-button--primary:focus {
+  background-color: var(--police-blue-light);
+  border-color: var(--police-blue-light);
+}
+
+.el-button--danger {
+  background-color: var(--police-red);
+  border-color: var(--police-red);
+}
+
+.el-button--danger:hover,
+.el-button--danger:focus {
+  background-color: var(--police-red-light);
+  border-color: var(--police-red-light);
+}
+
+/* 表单样式 */
+.el-form-item__label {
+  font-family: var(--font-body);
+  font-weight: 500;
+}
+
+/* 表格样式 */
+.el-table th {
+  background-color: var(--police-gray-light);
+  font-family: var(--font-title);
+  font-weight: 600;
+  color: var(--police-blue);
+}
+
+/* 进度条样式 */
+.el-progress__text {
+  font-family: var(--font-title);
+}
+
+/* 标签样式 */
+.el-tag--success {
+  background-color: #4CAF50;
+}
+
+.el-tag--warning {
+  background-color: #FF9800;
+}
+
+.el-tag--danger {
+  background-color: var(--police-red);
+}
+
+/* 图标样式 */
+.el-icon {
+  font-size: 16px;
+}
+
+/* 警务特色图标 */
+.police-icon {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  line-height: 24px;
+  text-align: center;
+  border-radius: 4px;
+  background-color: var(--police-blue);
+  color: white;
+  margin-right: 8px;
+}
+
+/* 页面标题样式 */
+.page-title {
+  font-family: var(--font-title);
+  font-size: 20px;
+  color: var(--police-blue);
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--police-red);
+  display: flex;
+  align-items: center;
+}
+
+.page-title i {
+  margin-right: 10px;
+  color: var(--police-red);
+}

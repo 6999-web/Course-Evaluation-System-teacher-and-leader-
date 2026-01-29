@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pymysql
+redis
+python-jose[cryptography]
+python-multipart
+python-dotenv
+pydantic-settings
+websockets
+pandas
+scikit-learn
+python-docx
+reportlab
+python-magic
