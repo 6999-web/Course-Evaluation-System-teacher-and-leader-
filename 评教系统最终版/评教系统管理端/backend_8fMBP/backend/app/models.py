@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Enum, Text, JSON
-from database import Base
+from app.database import Base
 import enum
 import uuid
 from datetime import datetime
@@ -183,6 +183,10 @@ class EvaluationAssignmentTask(Base):
     
     # 任务状态
     status = Column(String(20), default="pending")  # pending, submitted, scored, completed
+    
+    # 查收状态
+    is_viewed = Column(Boolean, default=False)  # 是否已查收（教师点击查看）
+    viewed_at = Column(DateTime, nullable=True)  # 查收时间
     
     # 提交信息
     submitted_files = Column(JSON)  # [{"file_id": "xxx", "file_name": "xxx", "file_size": 123, "file_url": "xxx"}, ...]

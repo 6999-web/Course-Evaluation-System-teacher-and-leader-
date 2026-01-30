@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import uvicorn
@@ -10,22 +11,22 @@ import os
 import shutil
 import uuid
 from datetime import datetime, timedelta
-from services import sync_distribution_to_teacher, sync_review_status_to_teacher
+from app.services import sync_distribution_to_teacher, sync_review_status_to_teacher
 
-from database import get_db, engine, Base
-from models import (
+from app.database import get_db, engine, Base
+from app.models import (
     SystemConfig, EvaluationTask, EvaluationData, AnalysisReport, User,
     EvaluationForm, DistributionRecord, MaterialSubmission,
     Teacher, Course, Department, EvaluationTemplate, EvaluationAssignmentTask
 )
-from schemas import (
+from app.schemas import (
     UserRegister, UserLogin, LoginResponse, RegisterResponse, 
     MessageResponse, UserResponse, Token,
     EvaluationFormCreate, EvaluationFormResponse,
     MaterialDistributeRequest, DistributionRecordResponse,
     MaterialSubmissionResponse, ReviewStatusUpdate
 )
-from auth import (
+from app.auth import (
     get_password_hash, verify_password, create_access_token,
     get_current_user, get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
@@ -46,6 +47,9 @@ app.add_middleware(
     allow_methods=["*"],      # 允许的方法：GET, POST, PUT, DELETE 等
     allow_headers=["*"],      # 允许的请求头：Authorization, Content-Type 等
 )
+
+# 配置静态文件服务
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # 暂时禁用Redis，使用内存存储
 redis_client = None
@@ -1027,8 +1031,48 @@ async def sync_teacher_submission(
             detail=f"同步失败: {str(e)}"
         )
 
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="localhost", port=8001, reload=True)
+@app.get("/api/evaluation-templates/{template_id}/download")
+async def download_evaluation_template(
+    template_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    下载考评表模板文件
+    """
+    try:
+        # 查找模板
+        template = db.query(EvaluationTemplate).filter(
+            EvaluationTemplate.template_id == template_id
+        ).first()
+        
+        if not template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="考评表模板不存在"
+            )
+        
+        # 检查文件是否存在
+        if not os.path.exists(template.file_url):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="模板文件不存在"
+            )
+        
+        # 返回文件
+        return FileResponse(
+            path=template.file_url,
+            filename=template.file_name,
+            media_type='application/octet-stream'
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"下载文件失败: {str(e)}"
+        )
 
 
 # ==================== 考评表相关接口 ====================
@@ -1307,16 +1351,19 @@ async def get_evaluation_tasks(
                 "template_name": template.name if template else "",
                 "teacher_id": task.teacher_id,
                 "teacher_name": task.teacher_name,
-                "status": task.status,
+                "status": task.status,  # 使用实际的任务状态
+                "display_status": "viewed" if (task.is_viewed and task.status == "pending") else task.status,  # 显示状态
+                "is_viewed": task.is_viewed,
+                "viewed_at": task.viewed_at.isoformat() if task.viewed_at else None,
                 "submitted_files": task.submitted_files,
                 "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
                 "submission_notes": task.submission_notes,
                 "scoring_criteria": template.scoring_criteria if template else [],
-                "total_score": template.total_score if template else 0,  # 模板的总分
-                "scores": task.scores,  # ← 添加实际得分
-                "score": task.total_score,  # ← 添加任务的实际总分
-                "scoring_feedback": task.scoring_feedback,  # ← 添加评分反馈
-                "scored_at": task.scored_at.isoformat() if task.scored_at else None,  # ← 添加评分时间
+                "total_score": template.total_score if template else 0,
+                "scores": task.scores,
+                "score": task.total_score,
+                "scoring_feedback": task.scoring_feedback,
+                "scored_at": task.scored_at.isoformat() if task.scored_at else None,
                 "deadline": task.deadline.isoformat(),
                 "created_at": task.created_at.isoformat()
             })
@@ -1544,3 +1591,104 @@ async def sync_evaluation_submission(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"同步失败: {str(e)}"
         )
+
+
+@app.post("/api/evaluation-tasks/sync-viewed", response_model=dict)
+async def sync_evaluation_task_viewed(
+    task_id: str = Query(..., description="任务ID"),
+    viewed_at: str = Query(..., description="查收时间"),
+    db: Session = Depends(get_db)
+):
+    """
+    接收教师端的考评任务查收状态同步
+    """
+    try:
+        # 查找考评任务
+        task = db.query(EvaluationAssignmentTask).filter(
+            EvaluationAssignmentTask.task_id == task_id
+        ).first()
+        
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="考评任务不存在"
+            )
+        
+        # 解析查收时间
+        try:
+            viewed_time = datetime.fromisoformat(viewed_at.replace('Z', '+00:00'))
+        except Exception:
+            try:
+                if '.' in viewed_at:
+                    base_time = viewed_at.split('.')[0]
+                    viewed_time = datetime.fromisoformat(base_time)
+                else:
+                    viewed_time = datetime.fromisoformat(viewed_at)
+            except Exception:
+                viewed_time = datetime.now()
+        
+        # 更新查收状态
+        task.is_viewed = True
+        task.viewed_at = viewed_time
+        db.commit()
+        
+        print(f"考评任务查收状态已同步: {task_id}")
+        return {"message": "查收状态同步成功"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"同步失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"同步失败: {str(e)}"
+        )
+
+@app.get("/api/evaluation-templates/{template_id}/download")
+async def download_evaluation_template(
+    template_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    下载考评表模板文件
+    """
+    try:
+        # 查找模板
+        template = db.query(EvaluationTemplate).filter(
+            EvaluationTemplate.template_id == template_id
+        ).first()
+        
+        if not template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="考评表模板不存在"
+            )
+        
+        # 检查文件是否存在
+        if not os.path.exists(template.file_url):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="模板文件不存在"
+            )
+        
+        # 返回文件
+        return FileResponse(
+            path=template.file_url,
+            filename=template.file_name,
+            media_type='application/octet-stream'
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"下载文件失败: {str(e)}"
+        )
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="localhost", port=8001, reload=True)

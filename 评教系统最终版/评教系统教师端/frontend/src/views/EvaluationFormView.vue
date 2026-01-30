@@ -42,7 +42,7 @@
               上传文件
             </el-button>
             <el-button link type="primary" @click="viewDetail(row)">
-              详情
+              查看
             </el-button>
             <el-button 
               v-if="row.status === 'scored'" 
@@ -123,6 +123,21 @@
           </el-table>
         </div>
         
+        <!-- 考评表文件部分 -->
+        <div class="template-file-section">
+          <h4>考评表文件</h4>
+          <div class="file-item">
+            <el-icon><document /></el-icon>
+            <span class="file-name">{{ currentTask.template_name }}</span>
+            <el-button link type="primary" @click="downloadTemplateFile(currentTask)">
+              下载
+            </el-button>
+            <el-button link type="primary" @click="previewTemplateFile(currentTask)">
+              预览
+            </el-button>
+          </div>
+        </div>
+        
         <div v-if="currentTask.submitted_files && currentTask.submitted_files.length > 0" class="files-section">
           <h4>已提交文件</h4>
           <el-table :data="currentTask.submitted_files" stripe>
@@ -139,7 +154,7 @@
     </el-dialog>
     
     <!-- 评分详情对话框 -->
-    <el-dialog v-model="scoreDialogVisible" title="评分详情" width="600px">
+    <el-dialog v-model="scoreDialogVisible" title="评分详情" width="700px">
       <div v-if="currentTask && currentTask.score !== null && currentTask.score !== undefined" class="score-dialog">
         <div class="score-header">
           <div class="score-display">
@@ -159,12 +174,19 @@
             <span class="criterion-value">
               {{ getCriterionScore(criterion.name) }} / {{ criterion.max_score }}
             </span>
+            <span class="criterion-percentage">
+              {{ criterion.max_score ? Math.round((getCriterionScore(criterion.name) / criterion.max_score) * 100) : 0 }}%
+            </span>
           </div>
         </div>
         
         <div v-if="currentTask.scoring_feedback" class="feedback-section">
           <h4>评分反馈</h4>
           <p>{{ currentTask.scoring_feedback }}</p>
+        </div>
+        
+        <div class="score-info">
+          <p><strong>评分时间：</strong> {{ currentTask.scored_at || '-' }}</p>
         </div>
       </div>
       <div v-else class="score-dialog">
@@ -329,9 +351,25 @@ const submitFiles = async () => {
   }
 }
 
-const viewDetail = (task: any) => {
+const viewDetail = async (task: any) => {
   currentTask.value = task
   detailDialogVisible.value = true
+  
+  // 同步查收状态到管理端
+  try {
+    await axios.post(
+      `http://localhost:8001/api/evaluation-tasks/sync-viewed?task_id=${task.task_id}&viewed_at=${new Date().toISOString()}`,
+      null,
+      {
+        headers: {
+          'Authorization': `Bearer ${getToken()}`
+        }
+      }
+    )
+  } catch (error: any) {
+    console.error('同步查收状态失败:', error)
+    // 不影响用户操作，静默失败
+  }
 }
 
 const viewScore = (task: any) => {
@@ -359,6 +397,43 @@ const getCriterionScore = (criterionName: string) => {
     return 0
   }
   return currentTask.value.scores[criterionName] || 0
+}
+
+const downloadTemplateFile = (task: any) => {
+  if (!task.template_file_url) {
+    ElMessage.error('文件不存在')
+    return
+  }
+  
+  // 构建完整的下载URL
+  const fileUrl = task.template_file_url.startsWith('http') 
+    ? task.template_file_url 
+    : `${getApiBaseUrl()}/${task.template_file_url}`
+  
+  // 创建临时链接并下载
+  const link = document.createElement('a')
+  link.href = fileUrl
+  link.download = task.template_name || '考评表'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  
+  ElMessage.success('文件下载开始')
+}
+
+const previewTemplateFile = (task: any) => {
+  if (!task.template_file_url) {
+    ElMessage.error('文件不存在')
+    return
+  }
+  
+  // 构建完整的预览URL
+  const fileUrl = task.template_file_url.startsWith('http') 
+    ? task.template_file_url 
+    : `${getApiBaseUrl()}/${task.template_file_url}`
+  
+  // 在新标签页打开预览
+  window.open(fileUrl, '_blank')
 }
 
 onMounted(() => {
@@ -420,6 +495,35 @@ onMounted(() => {
 .criteria-section h4 {
   margin-bottom: 1rem;
   color: #212121;
+}
+
+.template-file-section {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background-color: #f6f8fb;
+  border-radius: 4px;
+}
+
+.template-file-section h4 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #212121;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background-color: white;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+.file-name {
+  flex: 1;
+  color: #212121;
+  font-size: 0.95rem;
 }
 
 .files-section {
@@ -493,11 +597,21 @@ onMounted(() => {
 .criterion-name {
   font-weight: 500;
   color: #212121;
+  min-width: 100px;
 }
 
 .criterion-value {
   color: #ff3b30;
   font-weight: bold;
+  min-width: 80px;
+  text-align: center;
+}
+
+.criterion-percentage {
+  color: #4CAF50;
+  font-weight: bold;
+  min-width: 60px;
+  text-align: right;
 }
 
 .feedback-section {
@@ -515,5 +629,18 @@ onMounted(() => {
   margin: 0;
   color: #424242;
   line-height: 1.6;
+}
+
+.score-info {
+  padding: 1rem;
+  background-color: #f6f8fb;
+  border-radius: 4px;
+  margin-top: 1.5rem;
+}
+
+.score-info p {
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+  color: #424242;
 }
 </style>

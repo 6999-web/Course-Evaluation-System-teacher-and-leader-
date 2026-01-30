@@ -1,46 +1,78 @@
 <template>
   <div class="evaluation-form-upload">
     <div class="upload-container">
-      <h2 class="page-title">上传考评表</h2>
+      <h2 class="page-title">考评表管理</h2>
       
-      <!-- 已上传的考评表列表 -->
-      <el-card class="templates-list-card" v-if="uploadedTemplates.length > 0">
-        <template #header>
-          <div class="card-header">
-            <span>已上传的考评表</span>
-            <el-button link @click="loadUploadedTemplates">刷新</el-button>
-          </div>
-        </template>
-        
-        <el-table :data="uploadedTemplates" stripe>
-          <el-table-column prop="template_id" label="ID" width="150" />
-          <el-table-column prop="name" label="名称" min-width="150" />
-          <el-table-column prop="status" label="状态" width="100">
-            <template #default="{ row }">
-              <el-tag :type="row.status === 'published' ? 'success' : 'info'">
-                {{ row.status === 'published' ? '已分配' : '待分配' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="target_count" label="分配教师数" width="120" />
-          <el-table-column label="操作" width="200" fixed="right">
-            <template #default="{ row }">
-              <el-button 
-                v-if="row.status !== 'published'" 
-                link 
-                type="primary" 
-                @click="openDistributeDialog(row)"
-              >
-                分配
-              </el-button>
-              <el-button link type="primary" @click="viewTemplateDetail(row)">
-                详情
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
+      <!-- 导航栏 -->
+      <div class="nav-tabs">
+        <div 
+          class="nav-tab" 
+          :class="{ active: activeTab === 'receive' }"
+          @click="activeTab = 'receive'"
+        >
+          待接收文件
+        </div>
+        <div 
+          class="nav-tab" 
+          :class="{ active: activeTab === 'generate' }"
+          @click="activeTab = 'generate'"
+        >
+          生成考评表
+        </div>
+      </div>
       
+      <!-- 待接收文件标签页 -->
+      <div v-if="activeTab === 'receive'" class="tab-content">
+        <!-- 考评表模板列表 -->
+        <el-card class="submissions-card">
+          <template #header>
+            <div class="card-header">
+              <span>考评表模板管理</span>
+              <el-button link @click="loadUploadedTemplates">刷新</el-button>
+            </div>
+          </template>
+          
+          <el-table :data="uploadedTemplates" stripe :loading="loadingSubmissions" style="width: 100%">
+            <el-table-column prop="template_id" label="模板ID" width="150" show-overflow-tooltip />
+            <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="total_score" label="总分" width="80" align="center" />
+            <el-table-column prop="status" label="状态" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'published' ? 'success' : 'info'" size="small">
+                  {{ row.status === 'published' ? '已分配' : '待分配' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="target_count" label="分配数" width="90" align="center" />
+            <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
+            <el-table-column label="操作" width="150" align="center">
+              <template #default="{ row }">
+                <el-button 
+                  v-if="row.status !== 'published'" 
+                  link 
+                  type="primary" 
+                  size="small"
+                  @click="openDistributeDialog(row)"
+                >
+                  分配
+                </el-button>
+                <el-button 
+                  link 
+                  type="primary" 
+                  size="small"
+                  @click="viewTemplateDetail(row)"
+                >
+                  详情
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+    </div>
+    
+    <!-- 生成考评表标签页 -->
+    <div v-if="activeTab === 'generate'" class="tab-content">
       <el-card class="upload-card">
         <!-- 基本信息 -->
         <div class="form-section">
@@ -189,6 +221,7 @@
         </div>
       </el-card>
     </div>
+    </div>
     
     <!-- 分配对话框 -->
     <el-dialog v-model="distributeDialogVisible" title="分配考评表" width="600px">
@@ -267,10 +300,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UploadFilled, Plus, Document } from '@element-plus/icons-vue'
 import axios from 'axios'
+
+const activeTab = ref('receive')
 
 const form = ref({
   name: '',
@@ -293,6 +328,7 @@ const distributionType = ref('targeted')
 const selectedTeachers = ref<string[]>([])
 const allTeachers = ref<any[]>([])
 const detailDialogVisible = ref(false)
+const loadingSubmissions = ref(false)
 
 const handleFileSelect = (file: any) => {
   selectedFile.value = file.raw
@@ -494,7 +530,49 @@ onMounted(() => {
   gap: 0.5rem;
 }
 
-.upload-card {
+.nav-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.nav-tab {
+  padding: 0.75rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #757575;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.nav-tab:hover {
+  color: #212121;
+}
+
+.nav-tab.active {
+  color: #ff3b30;
+  border-bottom-color: #ff3b30;
+}
+
+.tab-content {
+  animation: fadeIn 0.3s ease;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.upload-card,
+.submissions-card {
   border-radius: 8px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
@@ -620,10 +698,23 @@ onMounted(() => {
   min-width: 120px;
 }
 
-.templates-list-card {
+.submissions-card {
   margin-bottom: 2rem;
   border-radius: 8px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.submissions-card :deep(.el-table) {
+  font-size: 0.9rem;
+}
+
+.submissions-card :deep(.el-table th) {
+  background-color: #f6f8fb;
+  font-weight: 600;
+}
+
+.submissions-card :deep(.el-button) {
+  padding: 4px 8px;
 }
 
 .card-header {

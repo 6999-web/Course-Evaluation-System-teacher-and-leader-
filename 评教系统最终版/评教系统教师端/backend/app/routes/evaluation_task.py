@@ -32,39 +32,100 @@ async def get_evaluation_tasks(
     - 返回待办考评和已提交考评
     """
     try:
-        query = db.query(EvaluationTaskModel).filter(
-            EvaluationTaskModel.teacher_id == CURRENT_TEACHER_ID
-        )
+        # 使用原始SQL查询来避免字段不存在的问题
+        from sqlalchemy import text
+        
+        sql = """
+        SELECT task_id, template_id, teacher_id, template_name, template_file_url, 
+               template_file_type, status, deadline, submitted_files, submitted_at, 
+               submission_notes, scores, final_score, scoring_feedback, scored_at, 
+               score_history, total_score, scoring_criteria, submission_requirements, created_at, updated_at
+        FROM evaluation_form_tasks
+        WHERE teacher_id = :teacher_id
+        """
         
         if status_filter:
-            query = query.filter(EvaluationTaskModel.status == status_filter)
+            sql += " AND status = :status"
         
-        tasks = query.order_by(EvaluationTaskModel.deadline).all()
+        sql += " ORDER BY deadline"
+        
+        params = {"teacher_id": CURRENT_TEACHER_ID}
+        if status_filter:
+            params["status"] = status_filter
+        
+        result = db.execute(text(sql), params)
+        rows = result.fetchall()
         
         tasks_data = []
-        for task in tasks:
-            # 判断是否已过期
-            is_overdue = datetime.now() > task.deadline
+        for row in rows:
+            # 解析JSON字段
+            import json
+            submission_requirements = {}
+            scoring_criteria = []
+            submitted_files = []
+            scores = {}
+            score_history = []
             
-            tasks_data.append({
-                "task_id": task.task_id,
-                "template_id": task.template_id,
-                "template_name": task.template_name,
-                "template_file_url": task.template_file_url,
-                "template_file_type": task.template_file_type,
-                "status": task.status,
-                "deadline": task.deadline.isoformat(),
+            try:
+                if row[8]:  # submitted_files
+                    submitted_files = json.loads(row[8]) if isinstance(row[8], str) else row[8]
+            except:
+                pass
+            
+            try:
+                if row[11]:  # scores
+                    scores = json.loads(row[11]) if isinstance(row[11], str) else row[11]
+            except:
+                pass
+            
+            try:
+                if row[15]:  # score_history
+                    score_history = json.loads(row[15]) if isinstance(row[15], str) else row[15]
+            except:
+                pass
+            
+            try:
+                if row[17]:  # scoring_criteria
+                    scoring_criteria = json.loads(row[17]) if isinstance(row[17], str) else row[17]
+            except:
+                pass
+            
+            try:
+                if row[18]:  # submission_requirements
+                    submission_requirements = json.loads(row[18]) if isinstance(row[18], str) else row[18]
+            except:
+                pass
+            
+            # 判断是否已过期
+            from datetime import datetime
+            deadline = row[7]
+            if isinstance(deadline, str):
+                from dateutil import parser
+                deadline = parser.parse(deadline)
+            is_overdue = datetime.now() > deadline
+            
+            task_data = {
+                "task_id": row[0],
+                "template_id": row[1],
+                "template_name": row[3],
+                "template_file_url": row[4],
+                "template_file_type": row[5],
+                "status": row[6],
+                "deadline": deadline.isoformat() if hasattr(deadline, 'isoformat') else str(deadline),
                 "is_overdue": is_overdue,
-                "submission_requirements": task.submission_requirements,
-                "scoring_criteria": task.scoring_criteria,
-                "total_score": task.total_score,
-                "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
-                "score": task.final_score,
-                "scores": task.scores,
-                "scoring_feedback": task.scoring_feedback,
-                "scored_at": task.scored_at.isoformat() if task.scored_at else None,
-                "score_history": task.score_history
-            })
+                "submission_requirements": submission_requirements,
+                "scoring_criteria": scoring_criteria,
+                "total_score": row[16] or 100,  # 使用数据库中的实际总分，默认100
+                "submitted_at": row[9].isoformat() if row[9] and hasattr(row[9], 'isoformat') else row[9],
+                "score": row[12],  # final_score
+                "scores": scores,
+                "scoring_feedback": row[13],
+                "scored_at": row[14].isoformat() if row[14] and hasattr(row[14], 'isoformat') else row[14],
+                "score_history": score_history,
+                "is_viewed": False,
+                "viewed_at": None
+            }
+            tasks_data.append(task_data)
         
         # 分类返回
         pending_tasks = [t for t in tasks_data if t["status"] == "pending"]
@@ -77,6 +138,8 @@ async def get_evaluation_tasks(
         }
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取考评任务失败: {str(e)}"
@@ -106,6 +169,25 @@ async def get_evaluation_task(
         # 判断是否已过期
         is_overdue = datetime.now() > task.deadline
         
+        # 标记为已查收（如果字段存在）
+        try:
+            if hasattr(task, 'is_viewed') and not task.is_viewed:
+                task.is_viewed = True
+                task.viewed_at = datetime.now()
+                db.commit()
+        except Exception:
+            # 如果字段不存在，忽略错误
+            pass
+        
+        # 安全地获取is_viewed字段
+        is_viewed = False
+        viewed_at = None
+        try:
+            is_viewed = task.is_viewed if hasattr(task, 'is_viewed') else False
+            viewed_at = task.viewed_at if hasattr(task, 'viewed_at') else None
+        except Exception:
+            pass
+        
         return {
             "task_id": task.task_id,
             "template_id": task.template_id,
@@ -117,7 +199,7 @@ async def get_evaluation_task(
             "is_overdue": is_overdue,
             "submission_requirements": task.submission_requirements,
             "scoring_criteria": task.scoring_criteria,
-            "total_score": task.total_score,
+            "total_score": task.total_score or 100,  # 使用数据库中的实际总分
             "submitted_files": task.submitted_files,
             "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
             "submission_notes": task.submission_notes,
@@ -125,7 +207,9 @@ async def get_evaluation_task(
             "scores": task.scores,
             "scoring_feedback": task.scoring_feedback,
             "scored_at": task.scored_at.isoformat() if task.scored_at else None,
-            "score_history": task.score_history
+            "score_history": task.score_history,
+            "is_viewed": is_viewed,
+            "viewed_at": viewed_at.isoformat() if viewed_at else None
         }
         
     except HTTPException:

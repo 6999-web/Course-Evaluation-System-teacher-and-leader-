@@ -59,6 +59,10 @@ class EvaluationTaskModel(Base):
     status = Column(String(20), default="pending")  # pending, submitted, scored, completed
     deadline = Column(DateTime, nullable=False)
     
+    # 查收状态
+    is_viewed = Column(Boolean, default=False)  # 是否已查收（点击查看按钮）
+    viewed_at = Column(DateTime, nullable=True)  # 查收时间
+    
     # 提交信息
     submitted_files = Column(JSON)  # [{"file_id": "xxx", "file_name": "xxx", "file_size": 123, "file_url": "xxx"}, ...]
     submitted_at = Column(DateTime, nullable=True)

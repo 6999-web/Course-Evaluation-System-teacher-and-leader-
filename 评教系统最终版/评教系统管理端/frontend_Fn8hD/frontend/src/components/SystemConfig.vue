@@ -5,7 +5,7 @@
       <div class="page-header">
         <div class="header-content">
           <h1 class="page-title">系统配置</h1>
-          <p class="page-description">配置评教方案、分发材料和生成考评表</p>
+          <p class="page-description">配置评教方案和分发材料</p>
         </div>
       </div>
 
@@ -205,138 +205,6 @@
             </div>
           </div>
         </div>
-
-
-        <!-- 生成考评表 -->
-        <div v-show="activeTab === 'evaluation'" class="tab-pane fade-in">
-          <div class="content-card">
-            <div class="card-header">
-              <h2 class="card-title">考评表生成</h2>
-              <button class="btn-primary" @click="generateTable" :disabled="generating">
-                <span v-if="!generating">🎯 生成考评表</span>
-                <span v-else class="loading-text">
-                  <span class="loading-spinner"></span>
-                  生成中...
-                </span>
-              </button>
-            </div>
-
-            <div class="card-body">
-              <form class="form-grid">
-                <div class="form-group form-group-full">
-                  <label class="form-label">考评名称</label>
-                  <input
-                    v-model="evaluationForm.name"
-                    type="text"
-                    class="form-input"
-                    placeholder="例如：2024年度教师教学质量考评"
-                  />
-                </div>
-
-                <div class="form-group">
-                  <label class="form-label">开始日期</label>
-                  <input
-                    v-model="evaluationForm.startDate"
-                    type="date"
-                    class="form-input"
-                  />
-                </div>
-
-                <div class="form-group">
-                  <label class="form-label">结束日期</label>
-                  <input
-                    v-model="evaluationForm.endDate"
-                    type="date"
-                    class="form-input"
-                  />
-                </div>
-
-                <div class="form-group form-group-full">
-                  <label class="form-label">评分维度</label>
-                  <div class="checkbox-group">
-                    <label class="checkbox-label">
-                      <input v-model="evaluationForm.dimensions" type="checkbox" value="teaching_attitude" />
-                      <span>教学态度</span>
-                    </label>
-                    <label class="checkbox-label">
-                      <input v-model="evaluationForm.dimensions" type="checkbox" value="teaching_content" />
-                      <span>教学内容</span>
-                    </label>
-                    <label class="checkbox-label">
-                      <input v-model="evaluationForm.dimensions" type="checkbox" value="teaching_method" />
-                      <span>教学方法</span>
-                    </label>
-                    <label class="checkbox-label">
-                      <input v-model="evaluationForm.dimensions" type="checkbox" value="teaching_effect" />
-                      <span>教学效果</span>
-                    </label>
-                    <label class="checkbox-label">
-                      <input v-model="evaluationForm.dimensions" type="checkbox" value="student_feedback" />
-                      <span>学生反馈</span>
-                    </label>
-                  </div>
-                </div>
-              </form>
-
-              <!-- 生成的考评表预览 -->
-              <div v-if="generatedTable.length > 0" class="table-section">
-                <div class="table-header">
-                  <h3 class="section-title">考评表预览</h3>
-                  <div class="table-actions">
-                    <button class="btn-secondary" @click="exportExcel">
-                      📥 导出Excel
-                    </button>
-                    <button class="btn-secondary" @click="exportPDF">
-                      📄 导出PDF
-                    </button>
-                  </div>
-                </div>
-
-                <div class="table-wrapper">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th>序号</th>
-                        <th>姓名</th>
-                        <th>院系</th>
-                        <th v-for="dim in evaluationForm.dimensions" :key="dim">
-                          {{ getDimensionLabel(dim) }}
-                        </th>
-                        <th>总分</th>
-                        <th>评语</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(row, index) in generatedTable" :key="index">
-                        <td>{{ index + 1 }}</td>
-                        <td>{{ row.name }}</td>
-                        <td>{{ row.department }}</td>
-                        <td v-for="dim in evaluationForm.dimensions" :key="dim">
-                          <input
-                            v-model.number="row[dim]"
-                            type="number"
-                            min="0"
-                            max="100"
-                            class="table-input"
-                          />
-                        </td>
-                        <td class="total-score">{{ calculateTotal(row) }}</td>
-                        <td>
-                          <input
-                            v-model="row.comment"
-                            type="text"
-                            class="table-input"
-                            placeholder="输入评语"
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
     </div>
@@ -350,14 +218,12 @@ import { ref, reactive } from 'vue';
 // 标签页配置
 const tabs = [
   { key: 'config', label: '评教方案', icon: '📋' },
-  { key: 'distribute', label: '分发材料', icon: '📤' },
-  { key: 'evaluation', label: '生成考评表', icon: '📊' }
+  { key: 'distribute', label: '分发材料', icon: '📤' }
 ];
 
 const activeTab = ref('config');
 const saving = ref(false);
 const distributing = ref(false);
-const generating = ref(false);
 
 // 评教方案表单
 const form = reactive({
@@ -379,16 +245,6 @@ const form = reactive({
 // 文件上传
 const fileInput = ref<HTMLInputElement>();
 const uploadedFiles = ref<any[]>([]);
-
-// 考评表表单
-const evaluationForm = reactive({
-  name: '',
-  startDate: '',
-  endDate: '',
-  dimensions: ['teaching_attitude', 'teaching_content', 'teaching_method', 'teaching_effect']
-});
-
-const generatedTable = ref<any[]>([]);
 
 // 添加维度
 const addDimension = () => {
@@ -579,55 +435,6 @@ const distributeFiles = async () => {
     distributing.value = false;
   }
 };
-
-// 生成考评表
-const generateTable = () => {
-  if (!evaluationForm.name) {
-    alert('请输入考评名称');
-    return;
-  }
-  if (evaluationForm.dimensions.length === 0) {
-    alert('请选择评分维度');
-    return;
-  }
-  
-  generating.value = true;
-  
-  setTimeout(() => {
-    generatedTable.value = [
-      { name: '张三', department: '计算机学院', teaching_attitude: 90, teaching_content: 85, teaching_method: 88, teaching_effect: 92, student_feedback: 87, comment: '' },
-      { name: '李四', department: '电子工程学院', teaching_attitude: 88, teaching_content: 90, teaching_method: 85, teaching_effect: 89, student_feedback: 91, comment: '' },
-      { name: '王五', department: '人文学院', teaching_attitude: 92, teaching_content: 88, teaching_method: 90, teaching_effect: 87, student_feedback: 89, comment: '' }
-    ];
-    generating.value = false;
-    alert('考评表生成成功！');
-  }, 1500);
-};
-
-// 获取维度标签
-const getDimensionLabel = (dim: string) => {
-  const labels: any = {
-    teaching_attitude: '教学态度',
-    teaching_content: '教学内容',
-    teaching_method: '教学方法',
-    teaching_effect: '教学效果',
-    student_feedback: '学生反馈'
-  };
-  return labels[dim] || dim;
-};
-
-// 计算总分
-const calculateTotal = (row: any) => {
-  let total = 0;
-  evaluationForm.dimensions.forEach(dim => {
-    total += row[dim] || 0;
-  });
-  return Math.round(total / evaluationForm.dimensions.length);
-};
-
-// 导出功能
-const exportExcel = () => alert('Excel文件导出成功！');
-const exportPDF = () => alert('PDF文件导出成功！');
 </script>
 
 
