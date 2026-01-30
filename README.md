@@ -3,6 +3,9 @@
 ## 项目简介
 这是一个基于 Vue 3 + Vite (前端) 和 FastAPI (后端) 开发的评教系统。
 
+## 相关文档
+- [使用教程 (飞书文档)](https://hiioj3vbs6o.feishu.cn/wiki/MlyswJfiCiIyX7kYYuZcntRDntd?from=from_copylink)
+
 ## 功能特性
 - 教师端：查看评价、管理课程
 - 管理端：系统配置、用户管理
