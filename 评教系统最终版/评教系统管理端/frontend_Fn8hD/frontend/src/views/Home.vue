@@ -10,6 +10,12 @@
       <!-- 应用中心 -->
       <ApplicationCenter v-else-if="activeNavValue === 'application'" />
       
+      <!-- 考评表管理 -->
+      <EvaluationFormUpload v-else-if="activeNavValue === 'evaluation-form'" />
+      
+      <!-- 考评任务 -->
+      <EvaluationTaskListAdmin v-else-if="activeNavValue === 'evaluation-task'" />
+      
       <!-- 评教模板库 -->
       <TemplateLibrary v-else-if="activeNavValue === 'template'" />
       
@@ -37,6 +43,8 @@ import ArchiveCenter from '../components/ArchiveCenter.vue';
 import SystemConfig from '../components/SystemConfig.vue';
 import TemplateLibrary from '../components/TemplateLibrary.vue';
 import MaterialCollection from '../components/MaterialCollection.vue';
+import EvaluationFormUpload from '../components/EvaluationFormUpload.vue';
+import EvaluationTaskListAdmin from '../components/EvaluationTaskListAdmin.vue';
 
 // 接收来自App组件的activeNav状态
 const activeNav = inject('activeNav');

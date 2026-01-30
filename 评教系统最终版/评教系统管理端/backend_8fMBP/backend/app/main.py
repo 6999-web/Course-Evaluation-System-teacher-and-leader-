@@ -8,6 +8,7 @@ import redis
 import json
 import os
 import shutil
+import uuid
 from datetime import datetime, timedelta
 from services import sync_distribution_to_teacher, sync_review_status_to_teacher
 
@@ -15,7 +16,7 @@ from database import get_db, engine, Base
 from models import (
     SystemConfig, EvaluationTask, EvaluationData, AnalysisReport, User,
     EvaluationForm, DistributionRecord, MaterialSubmission,
-    Teacher, Course, Department
+    Teacher, Course, Department, EvaluationTemplate, EvaluationAssignmentTask
 )
 from schemas import (
     UserRegister, UserLogin, LoginResponse, RegisterResponse, 
@@ -1028,3 +1029,518 @@ async def sync_teacher_submission(
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="localhost", port=8001, reload=True)
+
+
+# ==================== 考评表相关接口 ====================
+
+@app.post("/api/evaluation-templates/upload", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def upload_evaluation_template(
+    file: UploadFile = File(...),
+    name: str = Query(..., description="考评表名称"),
+    description: str = Query("", description="考评表描述"),
+    scoring_criteria: str = Query(..., description="评分标准JSON"),
+    total_score: int = Query(100, description="总分"),
+    submission_requirements: str = Query(..., description="提交要求JSON"),
+    deadline_days: int = Query(7, description="截止天数"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    上传考评表
+    
+    - 支持 PDF、Excel、Word 格式
+    - 设置评分标准和提交要求
+    - 创建考评表模板
+    """
+    try:
+        # 验证文件类型
+        allowed_types = ['pdf', 'xlsx', 'xls', 'docx', 'doc']
+        file_ext = file.filename.split('.')[-1].lower()
+        if file_ext not in allowed_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"不支持的文件类型。允许的类型: {', '.join(allowed_types)}"
+            )
+        
+        # 验证文件大小（100MB限制）
+        max_size = 100 * 1024 * 1024
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        
+        if file_size > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="文件大小超过限制（最大100MB）"
+            )
+        
+        # 生成文件ID
+        file_id = f"tpl_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        
+        # 创建上传目录
+        upload_dir = "uploads/evaluation_templates"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # 保存文件
+        file_path = os.path.join(upload_dir, f"{file_id}_{file.filename}")
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # 解析JSON参数
+        import json
+        scoring_criteria_list = json.loads(scoring_criteria)
+        submission_reqs = json.loads(submission_requirements)
+        
+        # 计算截止时间
+        deadline = datetime.now() + timedelta(days=deadline_days)
+        
+        # 创建考评表模板
+        template = EvaluationTemplate(
+            name=name,
+            description=description,
+            file_url=file_path,
+            file_name=file.filename,
+            file_type=file_ext,
+            file_size=file_size,
+            scoring_criteria=scoring_criteria_list,
+            total_score=total_score,
+            submission_requirements=submission_reqs,
+            deadline=deadline,
+            target_teachers=[],  # 稍后分配
+            created_by=current_user.id,
+            status="draft"
+        )
+        
+        db.add(template)
+        db.commit()
+        db.refresh(template)
+        
+        return {
+            "message": "考评表上传成功",
+            "template_id": template.template_id,
+            "file_id": file_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"上传考评表失败: {str(e)}"
+        )
+
+
+@app.post("/api/evaluation-templates/{template_id}/distribute", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def distribute_evaluation_template(
+    template_id: str,
+    distribution_type: str = Query("targeted", description="分发类型: batch 或 targeted"),
+    target_teachers: List[str] = Query(None, description="目标教师ID列表"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    分配考评表给教师
+    
+    - 创建考评任务
+    - 同步到教师端
+    """
+    try:
+        # 查找考评表模板
+        template = db.query(EvaluationTemplate).filter(
+            EvaluationTemplate.template_id == template_id
+        ).first()
+        
+        if not template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="考评表模板不存在"
+            )
+        
+        # 获取目标教师
+        if distribution_type == "batch":
+            teachers = db.query(Teacher).all()
+            target_teacher_ids = [t.teacher_id for t in teachers]
+        else:
+            if not target_teachers:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="指定分配时必须选择至少一个教师"
+                )
+            target_teacher_ids = target_teachers
+        
+        # 为每个教师创建考评任务
+        created_tasks = []
+        for teacher_id in target_teacher_ids:
+            teacher = db.query(Teacher).filter(Teacher.teacher_id == teacher_id).first()
+            if not teacher:
+                continue
+            
+            # 生成任务ID：template_id_teacher_id
+            task_id = f"{template_id}_{teacher_id}"
+            
+            task = EvaluationAssignmentTask(
+                task_id=task_id,
+                template_id=template_id,
+                teacher_id=teacher_id,
+                teacher_name=teacher.teacher_name,
+                deadline=template.deadline,
+                status="pending"
+            )
+            
+            db.add(task)
+            created_tasks.append(task)
+        
+        db.commit()
+        
+        # 更新模板状态
+        template.status = "published"
+        template.target_teachers = [
+            {"teacher_id": t.teacher_id, "teacher_name": t.teacher_name}
+            for t in db.query(Teacher).filter(Teacher.teacher_id.in_(target_teacher_ids)).all()
+        ]
+        db.commit()
+        
+        # 同步到教师端
+        await sync_evaluation_tasks_to_teacher(template, target_teacher_ids)
+        
+        return {
+            "message": "考评表分配成功",
+            "distributed_count": len(created_tasks)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"分配考评表失败: {str(e)}"
+        )
+
+
+@app.get("/api/evaluation-templates", response_model=dict)
+async def get_evaluation_templates(
+    status_filter: Optional[str] = Query(None, description="状态筛选"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    获取考评表列表
+    """
+    try:
+        query = db.query(EvaluationTemplate)
+        
+        if status_filter:
+            query = query.filter(EvaluationTemplate.status == status_filter)
+        
+        templates = query.order_by(EvaluationTemplate.created_at.desc()).all()
+        
+        templates_data = []
+        for template in templates:
+            templates_data.append({
+                "template_id": template.template_id,
+                "name": template.name,
+                "description": template.description,
+                "file_name": template.file_name,
+                "file_type": template.file_type,
+                "total_score": template.total_score,
+                "deadline": template.deadline.isoformat(),
+                "status": template.status,
+                "target_count": len(template.target_teachers),
+                "created_at": template.created_at.isoformat()
+            })
+        
+        return {
+            "templates": templates_data,
+            "total": len(templates_data)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取考评表列表失败: {str(e)}"
+        )
+
+
+@app.get("/api/evaluation-tasks", response_model=dict)
+async def get_evaluation_tasks(
+    template_id: Optional[str] = Query(None, description="考评表ID筛选"),
+    teacher_id: Optional[str] = Query(None, description="教师ID筛选"),
+    status_filter: Optional[str] = Query(None, description="状态筛选"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    获取考评任务列表
+    
+    - 支持按考评表、教师、状态筛选
+    """
+    try:
+        query = db.query(EvaluationAssignmentTask)
+        
+        if template_id:
+            query = query.filter(EvaluationAssignmentTask.template_id == template_id)
+        
+        if teacher_id:
+            query = query.filter(EvaluationAssignmentTask.teacher_id == teacher_id)
+        
+        if status_filter:
+            query = query.filter(EvaluationAssignmentTask.status == status_filter)
+        
+        tasks = query.order_by(EvaluationAssignmentTask.created_at.desc()).all()
+        
+        tasks_data = []
+        for task in tasks:
+            template = db.query(EvaluationTemplate).filter(
+                EvaluationTemplate.template_id == task.template_id
+            ).first()
+            
+            tasks_data.append({
+                "task_id": task.task_id,
+                "template_id": task.template_id,
+                "template_name": template.name if template else "",
+                "teacher_id": task.teacher_id,
+                "teacher_name": task.teacher_name,
+                "status": task.status,
+                "submitted_files": task.submitted_files,
+                "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
+                "submission_notes": task.submission_notes,
+                "scoring_criteria": template.scoring_criteria if template else [],
+                "total_score": template.total_score if template else 0,  # 模板的总分
+                "scores": task.scores,  # ← 添加实际得分
+                "score": task.total_score,  # ← 添加任务的实际总分
+                "scoring_feedback": task.scoring_feedback,  # ← 添加评分反馈
+                "scored_at": task.scored_at.isoformat() if task.scored_at else None,  # ← 添加评分时间
+                "deadline": task.deadline.isoformat(),
+                "created_at": task.created_at.isoformat()
+            })
+        
+        return {
+            "tasks": tasks_data,
+            "total": len(tasks_data)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取考评任务列表失败: {str(e)}"
+        )
+
+
+@app.post("/api/evaluation-tasks/{task_id}/score", response_model=dict)
+async def score_evaluation_task(
+    task_id: str,
+    scores: str = Query(..., description="评分结果JSON字符串"),
+    feedback: str = Query("", description="评分反馈"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    对考评任务进行评分
+    
+    - 保存评分结果
+    - 记录修改历史
+    """
+    try:
+        # 查找考评任务
+        task = db.query(EvaluationAssignmentTask).filter(
+            EvaluationAssignmentTask.task_id == task_id
+        ).first()
+        
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="考评任务不存在"
+            )
+        
+        # 查找考评表模板获取评分标准
+        template = db.query(EvaluationTemplate).filter(
+            EvaluationTemplate.template_id == task.template_id
+        ).first()
+        
+        if not template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="考评表模板不存在"
+            )
+        
+        # 计算总分
+        scores_dict = json.loads(scores) if isinstance(scores, str) else scores
+        total_score = sum(scores_dict.values())
+        
+        # 记录修改历史
+        score_history = task.score_history or []
+        if task.total_score is not None:
+            score_history.append({
+                "old_score": task.total_score,
+                "new_score": total_score,
+                "reason": feedback,
+                "changed_at": datetime.now().isoformat(),
+                "changed_by": current_user.username
+            })
+        
+        # 更新任务
+        task.scores = scores_dict
+        task.total_score = total_score
+        task.scoring_feedback = feedback
+        task.scored_by = current_user.id
+        task.scored_at = datetime.now()
+        task.score_history = score_history
+        task.status = "scored"
+        
+        db.commit()
+        
+        # 同步评分结果到教师端
+        await sync_evaluation_score_to_teacher(task)
+        
+        return {
+            "message": "评分成功",
+            "task_id": task_id,
+            "total_score": total_score
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"评分失败: {str(e)}"
+        )
+
+
+# 同步函数
+async def sync_evaluation_tasks_to_teacher(template: EvaluationTemplate, teacher_ids: List[str]):
+    """同步考评任务到教师端"""
+    import httpx
+    import json
+    
+    TEACHER_API_BASE = os.getenv("TEACHER_API_URL", "http://localhost:8000")
+    
+    for teacher_id in teacher_ids:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{TEACHER_API_BASE}/api/admin/sync-evaluation-task",
+                    json={
+                        "task_id": f"{template.template_id}_{teacher_id}",
+                        "template_id": template.template_id,
+                        "teacher_id": teacher_id,
+                        "template_name": template.name,
+                        "template_file_url": template.file_url,
+                        "template_file_type": template.file_type,
+                        "submission_requirements": template.submission_requirements,
+                        "scoring_criteria": template.scoring_criteria,
+                        "total_score": template.total_score,
+                        "deadline": template.deadline.isoformat()
+                    },
+                    timeout=30.0
+                )
+                print(f"同步考评任务到教师 {teacher_id} 响应: {response.status_code}")
+                if response.status_code not in [200, 201]:
+                    print(f"同步失败: {response.text}")
+        except Exception as e:
+            print(f"同步考评任务到教师 {teacher_id} 异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+
+async def sync_evaluation_score_to_teacher(task: EvaluationAssignmentTask):
+    """同步评分结果到教师端"""
+    import httpx
+    
+    TEACHER_API_BASE = os.getenv("TEACHER_API_URL", "http://localhost:8000")
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{TEACHER_API_BASE}/api/admin/sync-evaluation-score",
+                json={
+                    "task_id": task.task_id,
+                    "template_id": task.template_id,
+                    "teacher_id": task.teacher_id,
+                    "scores": task.scores,
+                    "total_score": task.total_score,
+                    "scoring_feedback": task.scoring_feedback,
+                    "scored_at": task.scored_at.isoformat() if task.scored_at else None
+                },
+                timeout=30.0
+            )
+            print(f"同步评分结果到教师 {task.teacher_id} 响应: {response.status_code}")
+            if response.status_code not in [200, 201]:
+                print(f"同步失败: {response.text}")
+    except Exception as e:
+        print(f"同步评分结果到教师 {task.teacher_id} 异常: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+
+@app.post("/api/evaluation-tasks/sync-submission", response_model=dict)
+async def sync_evaluation_submission(
+    data: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    接收教师端的考评提交信息
+    """
+    try:
+        task_id = data.get("task_id")
+        template_id = data.get("template_id")
+        teacher_id = data.get("teacher_id")
+        teacher_name = data.get("teacher_name")
+        files = data.get("files", [])
+        notes = data.get("notes")
+        submitted_at = data.get("submitted_at")
+        
+        print(f"接收考评提交: {task_id}")
+        
+        # 查找考评任务
+        task = db.query(EvaluationAssignmentTask).filter(
+            EvaluationAssignmentTask.task_id == task_id
+        ).first()
+        
+        if not task:
+            print(f"考评任务不存在: {task_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="考评任务不存在"
+            )
+        
+        # 解析提交时间
+        try:
+            submitted_at_dt = datetime.fromisoformat(submitted_at.replace('Z', '+00:00'))
+        except:
+            submitted_at_dt = datetime.now()
+        
+        # 更新任务
+        task.submitted_files = files
+        task.submitted_at = submitted_at_dt
+        task.submission_notes = notes
+        task.status = "submitted"
+        task.updated_at = datetime.now()
+        
+        db.commit()
+        
+        print(f"考评提交已保存: {task_id}")
+        
+        return {"message": "同步成功"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"同步失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"同步失败: {str(e)}"
+        )

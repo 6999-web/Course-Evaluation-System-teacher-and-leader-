@@ -157,3 +157,155 @@ async def get_submission(
         "submitted_at": submission.submitted_at.isoformat(),
         "review_status": submission.review_status
     }
+
+
+
+class EvaluationTaskSyncRequest(BaseModel):
+    """考评任务同步请求"""
+    task_id: str
+    template_id: str
+    teacher_id: str
+    template_name: str
+    template_file_url: str
+    template_file_type: str
+    submission_requirements: dict = {}
+    scoring_criteria: list = []
+    total_score: int = 100
+    deadline: str
+
+
+@router.post("/sync-evaluation-task", response_model=dict)
+async def sync_evaluation_task(
+    data: EvaluationTaskSyncRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    接收管理端的考评任务分配信息
+    """
+    try:
+        from app.models.material import EvaluationTaskModel
+        
+        # 检查是否已存在
+        existing = db.query(EvaluationTaskModel).filter(
+            EvaluationTaskModel.task_id == data.task_id
+        ).first()
+        
+        if existing:
+            return {"message": "考评任务已存在"}
+        
+        # 解析截止时间
+        try:
+            deadline = datetime.fromisoformat(data.deadline.replace('Z', '+00:00'))
+        except Exception:
+            try:
+                if '.' in data.deadline:
+                    base_time = data.deadline.split('.')[0]
+                    deadline = datetime.fromisoformat(base_time)
+                else:
+                    deadline = datetime.fromisoformat(data.deadline)
+            except Exception:
+                deadline = datetime.now()
+        
+        # 创建考评任务
+        task = EvaluationTaskModel(
+            task_id=data.task_id,
+            template_id=data.template_id,
+            teacher_id=data.teacher_id,
+            template_name=data.template_name,
+            template_file_url=data.template_file_url,
+            template_file_type=data.template_file_type,
+            submission_requirements=data.submission_requirements or {},
+            scoring_criteria=data.scoring_criteria or [],
+            total_score=data.total_score,
+            status="pending",
+            deadline=deadline,
+            created_at=datetime.now(),
+            updated_at=datetime.now()
+        )
+        
+        db.add(task)
+        db.commit()
+        
+        print(f"考评任务同步成功: {data.task_id}")
+        return {"message": "考评任务同步成功"}
+        
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"同步失败: {str(e)}"
+        )
+
+
+
+class EvaluationScoreSyncRequest(BaseModel):
+    """考评评分同步请求"""
+    task_id: str
+    template_id: str
+    teacher_id: str
+    scores: dict = {}
+    total_score: float
+    scoring_feedback: str = ""
+    scored_at: str
+
+
+@router.post("/sync-evaluation-score", response_model=dict)
+async def sync_evaluation_score(
+    data: EvaluationScoreSyncRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    接收管理端的考评评分信息
+    """
+    try:
+        from app.models.material import EvaluationTaskModel
+        
+        # 查找考评任务
+        task = db.query(EvaluationTaskModel).filter(
+            EvaluationTaskModel.task_id == data.task_id
+        ).first()
+        
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="考评任务不存在"
+            )
+        
+        # 解析评分时间
+        try:
+            scored_at = datetime.fromisoformat(data.scored_at.replace('Z', '+00:00'))
+        except Exception:
+            try:
+                if '.' in data.scored_at:
+                    base_time = data.scored_at.split('.')[0]
+                    scored_at = datetime.fromisoformat(base_time)
+                else:
+                    scored_at = datetime.fromisoformat(data.scored_at)
+            except Exception:
+                scored_at = datetime.now()
+        
+        # 更新任务评分信息
+        task.scores = data.scores
+        task.final_score = data.total_score
+        task.scoring_feedback = data.scoring_feedback
+        task.scored_at = scored_at
+        task.status = "scored"
+        task.updated_at = datetime.now()
+        
+        db.commit()
+        
+        print(f"考评评分同步成功: {data.task_id}")
+        return {"message": "考评评分同步成功"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"同步失败: {str(e)}"
+        )

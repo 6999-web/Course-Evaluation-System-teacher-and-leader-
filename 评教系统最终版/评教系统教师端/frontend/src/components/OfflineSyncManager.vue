@@ -206,11 +206,11 @@
                   
                   <el-form-item label="可离线使用功能">
                     <el-checkbox-group v-model="availableOfflineFeatures">
-                      <el-checkbox label="查看评价报告" />
-                      <el-checkbox label="编写改进计划" />
-                      <el-checkbox label="记录教学笔记" />
-                      <el-checkbox label="查看个人档案" />
-                      <el-checkbox label="阅读教学资源" />
+                      <el-checkbox :label="'查看评价报告'" />
+                      <el-checkbox :label="'编写改进计划'" />
+                      <el-checkbox :label="'记录教学笔记'" />
+                      <el-checkbox :label="'查看个人档案'" />
+                      <el-checkbox :label="'阅读教学资源'" />
                     </el-checkbox-group>
                   </el-form-item>
                   

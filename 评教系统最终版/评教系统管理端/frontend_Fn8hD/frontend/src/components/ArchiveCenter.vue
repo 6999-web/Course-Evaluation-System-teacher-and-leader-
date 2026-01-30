@@ -22,8 +22,8 @@
             <el-form :model="archivePolicy" label-width="120px" class="policy-form">
               <el-form-item label="自动归档策略">
                 <el-radio-group v-model="archivePolicy.auto_archive">
-                  <el-radio label="true">启用</el-radio>
-                  <el-radio label="false">禁用</el-radio>
+                  <el-radio :label="'true'">启用</el-radio>
+                  <el-radio :label="'false'">禁用</el-radio>
                 </el-radio-group>
               </el-form-item>
               
@@ -37,10 +37,10 @@
               
               <el-form-item label="归档类型">
                 <el-checkbox-group v-model="archivePolicy.archive_types">
-                  <el-checkbox label="评教数据">评教数据</el-checkbox>
-                  <el-checkbox label="分析报告">分析报告</el-checkbox>
-                  <el-checkbox label="操作日志">操作日志</el-checkbox>
-                  <el-checkbox label="配置文件">配置文件</el-checkbox>
+                  <el-checkbox :label="'评教数据'">评教数据</el-checkbox>
+                  <el-checkbox :label="'分析报告'">分析报告</el-checkbox>
+                  <el-checkbox :label="'操作日志'">操作日志</el-checkbox>
+                  <el-checkbox :label="'配置文件'">配置文件</el-checkbox>
                 </el-checkbox-group>
               </el-form-item>
               
@@ -199,11 +199,11 @@
             <el-form :model="privacyConfig" label-width="120px" class="privacy-form">
               <el-form-item label="数据脱敏规则">
                 <el-checkbox-group v-model="privacyConfig.desensitization_rules">
-                  <el-checkbox label="student_id">学生ID</el-checkbox>
-                  <el-checkbox label="teacher_id">教师ID</el-checkbox>
-                  <el-checkbox label="phone">手机号码</el-checkbox>
-                  <el-checkbox label="email">邮箱地址</el-checkbox>
-                  <el-checkbox label="ip_address">IP地址</el-checkbox>
+                  <el-checkbox :label="'student_id'">学生ID</el-checkbox>
+                  <el-checkbox :label="'teacher_id'">教师ID</el-checkbox>
+                  <el-checkbox :label="'phone'">手机号码</el-checkbox>
+                  <el-checkbox :label="'email'">邮箱地址</el-checkbox>
+                  <el-checkbox :label="'ip_address'">IP地址</el-checkbox>
                 </el-checkbox-group>
               </el-form-item>
               
@@ -217,16 +217,16 @@
               
               <el-form-item label="访问权限控制">
                 <el-radio-group v-model="privacyConfig.access_control">
-                  <el-radio label="strict">严格模式（仅授权人员可访问）</el-radio>
-                  <el-radio label="normal">普通模式（院系级以上可访问）</el-radio>
-                  <el-radio label="relaxed">宽松模式（所有管理员可访问）</el-radio>
+                  <el-radio :label="'strict'">严格模式（仅授权人员可访问）</el-radio>
+                  <el-radio :label="'normal'">普通模式（院系级以上可访问）</el-radio>
+                  <el-radio :label="'relaxed'">宽松模式（所有管理员可访问）</el-radio>
                 </el-radio-group>
               </el-form-item>
               
               <el-form-item label="定期权限审查">
                 <el-radio-group v-model="privacyConfig.permission_review">
-                  <el-radio label="true">启用</el-radio>
-                  <el-radio label="false">禁用</el-radio>
+                  <el-radio :label="'true'">启用</el-radio>
+                  <el-radio :label="'false'">禁用</el-radio>
                 </el-radio-group>
               </el-form-item>
               

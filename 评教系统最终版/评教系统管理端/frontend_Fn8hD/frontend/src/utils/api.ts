@@ -3,7 +3,7 @@
  * 自动添加认证令牌到请求头
  */
 
-const API_BASE_URL = 'http://120.26.29.145:8000'
+const API_BASE_URL = 'http://localhost:8001'
 
 /**
  * 获取存储的令牌

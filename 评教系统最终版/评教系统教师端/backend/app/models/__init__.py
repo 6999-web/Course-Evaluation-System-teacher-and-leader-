@@ -2,7 +2,7 @@ from app.models.base import Base
 from app.models.system_config import SystemConfig
 from app.models.evaluation_task import EvaluationTask
 from app.models.evaluation_data import EvaluationData
-from app.models.material import DistributedMaterial, TeacherSubmission
+from app.models.material import DistributedMaterial, TeacherSubmission, EvaluationTaskModel
 
 __all__ = [
     "Base",
@@ -10,5 +10,6 @@ __all__ = [
     "EvaluationTask",
     "EvaluationData",
     "DistributedMaterial",
-    "TeacherSubmission"
+    "TeacherSubmission",
+    "EvaluationTaskModel"
 ]

@@ -117,6 +117,8 @@ const navItems = [
   { id: 'monitoring', label: '监控中心', icon: 'el-icon-video-camera' },
   { id: 'analysis', label: '分析中心', icon: 'el-icon-data-analysis' },
   { id: 'application', label: '应用中心', icon: 'el-icon-s-flag' },
+  { id: 'evaluation-form', label: '考评表管理', icon: 'el-icon-document-add' },
+  { id: 'evaluation-task', label: '考评任务', icon: 'el-icon-document-checked' },
   { id: 'template', label: '评教模板库', icon: 'el-icon-document-copy' },
   { id: 'archive', label: '档案中心', icon: 'el-icon-document' },
   { id: 'collection', label: '材料回收', icon: 'el-icon-folder-opened' },

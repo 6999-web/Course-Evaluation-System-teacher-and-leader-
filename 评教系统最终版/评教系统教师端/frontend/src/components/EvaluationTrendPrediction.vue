@@ -48,10 +48,10 @@
             <el-col :span="12">
               <el-form-item label="预测维度" label-width="80px">
                 <el-checkbox-group v-model="selectedDimensions" size="large">
-                  <el-checkbox label="教学态度">教学态度</el-checkbox>
-                  <el-checkbox label="教学内容">教学内容</el-checkbox>
-                  <el-checkbox label="教学方法">教学方法</el-checkbox>
-                  <el-checkbox label="教学效果">教学效果</el-checkbox>
+                  <el-checkbox :label="'教学态度'">教学态度</el-checkbox>
+                  <el-checkbox :label="'教学内容'">教学内容</el-checkbox>
+                  <el-checkbox :label="'教学方法'">教学方法</el-checkbox>
+                  <el-checkbox :label="'教学效果'">教学效果</el-checkbox>
                 </el-checkbox-group>
               </el-form-item>
             </el-col>

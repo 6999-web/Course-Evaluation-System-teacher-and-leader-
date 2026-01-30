@@ -66,6 +66,10 @@
               <el-icon name="Document" />
               <template #title>我的评价</template>
             </el-menu-item>
+            <el-menu-item index="evaluation-form">
+              <el-icon name="DocumentAdd" />
+              <template #title>待办考评</template>
+            </el-menu-item>
             <el-menu-item index="report">
               <el-icon name="PieChart" />
               <template #title>评价报告</template>

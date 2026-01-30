@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import DashboardView from '@/views/DashboardView.vue'
 import EvaluationView from '@/views/EvaluationView.vue'
+import EvaluationFormView from '@/views/EvaluationFormView.vue'
 import ReportView from '@/views/ReportView.vue'
 import BatchOperationView from '@/views/BatchOperationView.vue'
 import PersonalGrowthProfileView from '@/views/PersonalGrowthProfileView.vue'
@@ -23,6 +24,11 @@ const routes: Array<RouteRecordRaw> = [
     path: '/evaluation',
     name: 'evaluation',
     component: EvaluationView
+  },
+  {
+    path: '/evaluation-form',
+    name: 'evaluation-form',
+    component: EvaluationFormView
   },
   {
     path: '/report',

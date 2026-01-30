@@ -43,7 +43,7 @@ def init_db():
         from app.models.system_config import SystemConfig
         from app.models.evaluation_task import EvaluationTask
         from app.models.evaluation_data import EvaluationData
-        from app.models.material import DistributedMaterial, TeacherSubmission
+        from app.models.material import DistributedMaterial, TeacherSubmission, EvaluationTaskModel
         
         # 创建所有表
         Base.metadata.create_all(bind=engine)

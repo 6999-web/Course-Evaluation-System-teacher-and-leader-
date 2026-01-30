@@ -37,9 +37,9 @@
               
               <el-form-item label="通知方式">
                 <el-checkbox-group v-model="distributeForm.notify_type">
-                  <el-checkbox label="邮件">邮件</el-checkbox>
-                  <el-checkbox label="站内信">站内信</el-checkbox>
-                  <el-checkbox label="短信">短信</el-checkbox>
+                  <el-checkbox :label="'邮件'">邮件</el-checkbox>
+                  <el-checkbox :label="'站内信'">站内信</el-checkbox>
+                  <el-checkbox :label="'短信'">短信</el-checkbox>
                 </el-checkbox-group>
               </el-form-item>
               

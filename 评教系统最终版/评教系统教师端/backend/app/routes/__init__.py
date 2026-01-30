@@ -8,6 +8,7 @@ from .improvement import router as improvement_router
 from .review import router as review_router
 from .material import router as material_router
 from .admin_sync import router as admin_sync_router
+from .evaluation_task import router as evaluation_task_router
 
 api_router = APIRouter()
 
@@ -23,3 +24,5 @@ api_router.include_router(review_router, prefix="/review", tags=["review"])
 api_router.include_router(material_router, tags=["material"])
 # 【修改】admin_sync_router已经有前缀，不需要再添加
 api_router.include_router(admin_sync_router, tags=["admin_sync"])
+# 【新增】考评任务路由
+api_router.include_router(evaluation_task_router, tags=["evaluation_task"])
