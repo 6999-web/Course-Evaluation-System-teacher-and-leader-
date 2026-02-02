@@ -41,6 +41,8 @@ async def sync_distribution(
     接收管理端的材料分发信息
     """
     try:
+        print(f"收到分发同步请求: material_id={data.material_id}, teacher_id={data.teacher_id}, material_name={data.material_name}")
+        
         # 检查是否已存在
         existing = db.query(DistributedMaterial).filter(
             DistributedMaterial.material_id == data.material_id,
@@ -48,6 +50,7 @@ async def sync_distribution(
         ).first()
         
         if existing:
+            print(f"材料已存在，跳过: {data.material_id}")
             return {"message": "材料已存在"}
         
         # 解析分发时间 - 支持多种格式
@@ -67,25 +70,30 @@ async def sync_distribution(
                 # 如果都失败，使用当前时间
                 distributed_at = datetime.now()
         
-        # 创建分发材料记录
+        # 创建分发材料记录 - 确保字段顺序正确
         material = DistributedMaterial(
-            material_id=data.material_id,
-            teacher_id=data.teacher_id,
-            material_name=data.material_name,
-            material_type=data.material_type,
-            file_url=data.file_url,
-            file_size=0,  # 可以后续更新
-            distributed_at=distributed_at,
-            is_viewed=False
+            material_id=data.material_id,      # ✅ 材料ID
+            teacher_id=data.teacher_id,        # ✅ 教师ID
+            material_name=data.material_name,  # ✅ 材料名称
+            material_type=data.material_type,  # ✅ 材料类型
+            file_url=data.file_url,            # ✅ 文件URL
+            file_size=0,                       # 可以后续更新
+            distributed_at=distributed_at,     # ✅ 分发时间
+            is_viewed=False                    # ✅ 是否已查看
         )
         
         db.add(material)
         db.commit()
         
+        print(f"✅ 材料同步成功: {data.material_name} -> {data.teacher_id}")
+        
         return {"message": "同步成功"}
         
     except Exception as e:
         db.rollback()
+        print(f"❌ 同步失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"同步失败: {str(e)}"

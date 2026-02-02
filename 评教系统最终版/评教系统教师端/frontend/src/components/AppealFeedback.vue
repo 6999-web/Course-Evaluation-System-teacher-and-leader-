@@ -276,9 +276,9 @@
         
         <el-form-item label="审核状态" prop="status">
           <el-radio-group v-model="reviewForm.status">
-            <el-radio :label="AppealStatus.APPROVED">通过</el-radio>
-            <el-radio :label="AppealStatus.REJECTED">拒绝</el-radio>
-            <el-radio :label="AppealStatus.PROCESSING">处理中</el-radio>
+            <el-radio :value="AppealStatus.APPROVED">通过</el-radio>
+            <el-radio :value="AppealStatus.REJECTED">拒绝</el-radio>
+            <el-radio :value="AppealStatus.PROCESSING">处理中</el-radio>
           </el-radio-group>
         </el-form-item>
         

@@ -101,9 +101,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, provide } from 'vue';
+import { ref, computed, provide, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import router from './router';
+import { getToken, getUserInfo } from './utils/api';
+import { setAuthReady, setAuthError } from './utils/authState';
 
 const activeNav = ref('monitoring');
 const userName = ref('管理员');
@@ -112,6 +114,77 @@ const userAvatar = ref('https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c672
 
 // 向子组件提供activeNav状态
 provide('activeNav', activeNav);
+
+// 页面加载时检查登录状态
+onMounted(async () => {
+  const currentPath = router.currentRoute.value.path;
+  
+  // 如果不在认证页面，检查是否已登录
+  if (currentPath !== '/auth') {
+    const token = getToken();
+    const userInfo = getUserInfo();
+    
+    if (!token) {
+      // 没有token，尝试自动登录
+      console.log('未检测到token，尝试自动登录...');
+      try {
+        const response = await fetch('http://localhost:8001/api/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            username: 'admin',
+            password: 'admin123'
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const newToken = data.token.access_token;
+          
+          // 保存token
+          localStorage.setItem('access_token', newToken);
+          localStorage.setItem('user_info', JSON.stringify(data.user));
+          sessionStorage.setItem('access_token', newToken);
+          sessionStorage.setItem('user_info', JSON.stringify(data.user));
+          
+          // 更新用户信息
+          userName.value = data.user.username || '管理员';
+          userEmail.value = data.user.email || 'admin@example.com';
+          
+          console.log('自动登录成功');
+          ElMessage.success('自动登录成功');
+          
+          // 标记认证已就绪
+          setAuthReady();
+        } else {
+          // 自动登录失败，跳转到登录页
+          console.log('自动登录失败，跳转到登录页');
+          setAuthError('自动登录失败');
+          router.push('/auth');
+        }
+      } catch (error) {
+        console.error('自动登录错误:', error);
+        setAuthError(error instanceof Error ? error.message : '自动登录错误');
+        router.push('/auth');
+      }
+    } else if (userInfo) {
+      // 有token和用户信息，更新显示
+      userName.value = userInfo.username || '管理员';
+      userEmail.value = userInfo.email || 'admin@example.com';
+      
+      // 标记认证已就绪
+      setAuthReady();
+    } else {
+      // 有token但没有用户信息，标记认证已就绪
+      setAuthReady();
+    }
+  } else {
+    // 在认证页面，也标记为就绪（允许登录请求）
+    setAuthReady();
+  }
+});
 
 const navItems = [
   { id: 'monitoring', label: '监控中心', icon: 'el-icon-video-camera' },

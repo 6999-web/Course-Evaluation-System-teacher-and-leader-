@@ -93,7 +93,7 @@
         
         <!-- 主内容区 -->
         <el-main class="app-main">
-          <div style="position: relative; z-index: 1;">
+          <div style="position: relative; z-index: auto;">
             <router-view />
           </div>
         </el-main>

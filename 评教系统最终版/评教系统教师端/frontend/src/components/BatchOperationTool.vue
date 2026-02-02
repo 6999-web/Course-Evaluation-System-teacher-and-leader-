@@ -35,18 +35,18 @@
                 <el-col :span="12">
                   <el-form-item label="导出格式">
                     <el-radio-group v-model="exportConfig.format">
-                      <el-radio :label="'pdf'">PDF</el-radio>
-                      <el-radio :label="'excel'">Excel</el-radio>
-                      <el-radio :label="'word'">Word</el-radio>
+                      <el-radio value="pdf">PDF</el-radio>
+                      <el-radio value="excel">Excel</el-radio>
+                      <el-radio value="word">Word</el-radio>
                     </el-radio-group>
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
                   <el-form-item label="导出范围">
                     <el-radio-group v-model="exportConfig.range">
-                      <el-radio :label="'all'">全部内容</el-radio>
-                      <el-radio :label="'summary'">仅摘要</el-radio>
-                      <el-radio :label="'details'">详细数据</el-radio>
+                      <el-radio value="all">全部内容</el-radio>
+                      <el-radio value="summary">仅摘要</el-radio>
+                      <el-radio value="details">详细数据</el-radio>
                     </el-radio-group>
                   </el-form-item>
                 </el-col>
@@ -146,9 +146,9 @@
                 <el-col :span="12">
                   <el-form-item label="下载方式">
                     <el-radio-group v-model="downloadConfig.downloadType">
-                      <el-radio :label="'打包下载'">打包下载</el-radio>
-                      <el-radio :label="'分别下载'">分别下载</el-radio>
-                      <el-radio :label="'导入到云盘'">导入到云盘</el-radio>
+                      <el-radio value="打包下载">打包下载</el-radio>
+                      <el-radio value="分别下载">分别下载</el-radio>
+                      <el-radio value="导入到云盘">导入到云盘</el-radio>
                     </el-radio-group>
                   </el-form-item>
                 </el-col>

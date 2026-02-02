@@ -335,24 +335,36 @@ const handleFiles = async (files: File[]) => {
     
     // 上传文件到服务器
     try {
+      const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
       const formData = new FormData();
       formData.append('file', file);
       
       const response = await fetch('http://localhost:8001/upload/materials', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData
       });
       
       if (response.ok) {
         const result = await response.json();
+        console.log('文件上传成功:', result);
+        
+        // 保存文件信息，使用服务器返回的file_id
         uploadedFiles.value.push({
-          name: file.name,
+          name: file.name,  // 显示用的原始文件名
           size: file.size,
           status: 'success',
-          url: result.url
+          url: result.url || result.file_url,
+          file_id: result.file_id,  // 服务器上的实际文件名
+          filename: result.filename  // 原始文件名
         });
+        
+        console.log('已添加文件:', uploadedFiles.value[uploadedFiles.value.length - 1]);
       } else {
-        alert(`文件 ${file.name} 上传失败`);
+        const error = await response.json();
+        alert(`文件 ${file.name} 上传失败: ${error.detail || '未知错误'}`);
       }
     } catch (error) {
       console.error('上传失败:', error);
@@ -386,7 +398,7 @@ const getFileIcon = (filename: string) => {
 
 // 分发文件
 const distributeFiles = async () => {
-  if (!confirm(`确定要将 ${uploadedFiles.value.length} 个文件分发给教师吗？`)) {
+  if (!confirm(`确定要将 ${uploadedFiles.value.length} 个文件分发给所有教师吗？`)) {
     return;
   }
   
@@ -401,9 +413,15 @@ const distributeFiles = async () => {
       return;
     }
     
-    // 准备分发数据
-    const material_ids = uploadedFiles.value.map(file => file.name);
+    // 准备分发数据 - 使用服务器返回的file_id
+    const material_ids = uploadedFiles.value.map(file => file.file_id);
     const material_types = uploadedFiles.value.map(() => 'file');
+    
+    console.log('准备分发材料:', { 
+      material_ids, 
+      material_types,
+      files: uploadedFiles.value 
+    });
     
     // 调用分发 API
     const response = await fetch('http://localhost:8001/api/materials/distribute', {
@@ -420,17 +438,21 @@ const distributeFiles = async () => {
       })
     });
     
+    console.log('分发响应状态:', response.status);
+    
     if (response.ok) {
       const result = await response.json();
-      alert(`成功分发 ${uploadedFiles.value.length} 个文件给 ${result.distributed_count} 位教师！`);
+      console.log('分发成功:', result);
+      alert(`✅ 成功分发 ${uploadedFiles.value.length} 个文件给 ${result.distributed_count} 位教师！`);
       uploadedFiles.value = [];
     } else {
       const error = await response.json();
-      alert(`分发失败: ${error.detail || '未知错误'}`);
+      console.error('分发失败:', error);
+      alert(`❌ 分发失败: ${error.detail || '未知错误'}`);
     }
   } catch (error: any) {
     console.error('分发失败:', error);
-    alert(`分发失败: ${error.message}`);
+    alert(`❌ 分发失败: ${error.message}`);
   } finally {
     distributing.value = false;
   }

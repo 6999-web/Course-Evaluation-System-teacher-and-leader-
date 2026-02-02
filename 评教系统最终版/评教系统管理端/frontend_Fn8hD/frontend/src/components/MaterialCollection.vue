@@ -169,6 +169,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
 import { getMaterialSubmissions, updateReviewStatus, downloadMaterial } from '../utils/materialApi';
+import { waitForAuth } from '../utils/authState';
 
 const loading = ref(false);
 const submissions = ref<any[]>([]);
@@ -188,6 +189,13 @@ const reviewForm = reactive({
 
 // 加载提交列表
 const loadSubmissions = async () => {
+  // 等待认证准备就绪
+  const authReady = await waitForAuth();
+  if (!authReady) {
+    console.warn('认证未就绪，跳过加载提交列表');
+    return;
+  }
+  
   loading.value = true;
   try {
     const params: any = {};
@@ -197,7 +205,8 @@ const loadSubmissions = async () => {
     const response = await getMaterialSubmissions(params);
     submissions.value = response.submissions || [];
   } catch (error: any) {
-    alert('加载失败: ' + error.message);
+    console.error('加载提交列表失败:', error);
+    // 不显示alert，避免打扰用户
   } finally {
     loading.value = false;
   }
@@ -286,13 +295,17 @@ const getFileIcon = (filename: string) => {
   return '📄';
 };
 
-onMounted(() => {
-  loadSubmissions();
+onMounted(async () => {
+  // 等待认证准备就绪
+  await waitForAuth();
   
-  // 每3秒自动刷新一次提交列表
+  // 首次加载
+  await loadSubmissions();
+  
+  // 每10秒自动刷新一次提交列表
   const refreshInterval = setInterval(() => {
     loadSubmissions();
-  }, 3000);
+  }, 10000);
   
   // 组件卸载时清除定时器
   return () => clearInterval(refreshInterval);

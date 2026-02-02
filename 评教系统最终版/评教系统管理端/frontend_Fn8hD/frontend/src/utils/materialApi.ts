@@ -2,6 +2,8 @@
  * 材料分发与回收相关 API
  */
 
+import { apiRequest } from './api';
+
 const API_BASE_URL = 'http://localhost:8001';
 
 // 获取认证token
@@ -10,26 +12,21 @@ const getAuthToken = () => {
   return localStorage.getItem('access_token') || sessionStorage.getItem('access_token') || '';
 };
 
-// 通用请求函数
+// 通用请求函数 - 使用统一的apiRequest来处理认证
 async function request(url: string, options: RequestInit = {}) {
-  const token = getAuthToken();
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...(token && { 'Authorization': `Bearer ${token}` }),
-    ...options.headers,
-  };
-
-  const response = await fetch(`${API_BASE_URL}${url}`, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: '请求失败' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+  try {
+    const response = await apiRequest(url, options);
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: '请求失败' }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    
+    return response.json();
+  } catch (error: any) {
+    console.error('API请求错误:', error);
+    throw error;
   }
-
-  return response.json();
 }
 
 /**

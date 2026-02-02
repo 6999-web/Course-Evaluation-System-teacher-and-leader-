@@ -250,9 +250,9 @@
         
         <el-form-item label="审核状态" prop="status">
           <el-radio-group v-model="reviewForm.status">
-            <el-radio :label="ReviewStatus.APPROVED">通过</el-radio>
-            <el-radio :label="ReviewStatus.REJECTED">拒绝</el-radio>
-            <el-radio :label="ReviewStatus.REVISED">要求修改</el-radio>
+            <el-radio :value="ReviewStatus.APPROVED">通过</el-radio>
+            <el-radio :value="ReviewStatus.REJECTED">拒绝</el-radio>
+            <el-radio :value="ReviewStatus.REVISED">要求修改</el-radio>
           </el-radio-group>
         </el-form-item>
         

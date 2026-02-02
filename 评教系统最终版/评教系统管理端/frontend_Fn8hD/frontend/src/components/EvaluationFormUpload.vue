@@ -235,8 +235,8 @@
         <div class="distribution-type">
           <label>分配方式</label>
           <el-radio-group v-model="distributionType">
-            <el-radio :label="'targeted'">指定教师</el-radio>
-            <el-radio :label="'batch'">全部教师</el-radio>
+            <el-radio value="targeted">指定教师</el-radio>
+            <el-radio value="batch">全部教师</el-radio>
           </el-radio-group>
         </div>
         
@@ -304,6 +304,7 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UploadFilled, Plus, Document } from '@element-plus/icons-vue'
 import axios from 'axios'
+import { waitForAuth } from '../utils/authState'
 
 const activeTab = ref('receive')
 
@@ -505,7 +506,9 @@ const viewTemplateDetail = (template: any) => {
   detailDialogVisible.value = true
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 等待认证准备就绪
+  await waitForAuth();
   loadUploadedTemplates()
 })
 </script>

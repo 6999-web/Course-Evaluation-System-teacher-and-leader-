@@ -7,7 +7,7 @@
       <div class="filters-section">
         <el-form :model="filters" label-width="100px" class="filters-form">
           <el-row :gutter="20">
-            <el-col :xs="24" :sm="12" :md="6">
+            <el-col :xs="24" :sm="12" :md="5">
               <el-form-item label="任务状态">
                 <el-select v-model="filters.status" placeholder="所有状态" clearable>
                   <el-option label="未查收" value="pending" />
@@ -17,17 +17,25 @@
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="12" :md="6">
+            <el-col :xs="24" :sm="12" :md="5">
               <el-form-item label="教师ID">
                 <el-input v-model="filters.teacher_id" placeholder="输入教师ID" clearable />
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="12" :md="6">
+            <el-col :xs="24" :sm="12" :md="5">
               <el-form-item label="考评表">
                 <el-input v-model="filters.template_id" placeholder="输入考评表ID" clearable />
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="12" :md="6">
+            <el-col :xs="24" :sm="12" :md="4">
+              <el-form-item label="显示模式">
+                <el-select v-model="viewMode" placeholder="选择模式" @change="handleViewModeChange">
+                  <el-option label="按教师" value="teacher" />
+                  <el-option label="按模板" value="template" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="5">
               <el-button type="primary" @click="loadTasks" :loading="loading">
                 <el-icon><search /></el-icon>
                 查询
@@ -38,8 +46,9 @@
         </el-form>
       </div>
       
-      <!-- 任务列表 -->
+      <!-- 任务列表 - 按教师显示 -->
       <el-table 
+        v-if="viewMode === 'teacher'"
         :data="tasks" 
         stripe 
         style="width: 100%"
@@ -103,6 +112,67 @@
               >
                 <el-icon><folder /></el-icon>
                 文件
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      
+      <!-- 任务列表 - 按模板分组显示 -->
+      <el-table 
+        v-else
+        :data="groupedTasks" 
+        stripe 
+        style="width: 100%"
+        :loading="loading"
+        class="task-table"
+      >
+        <el-table-column prop="template_id" label="考评表ID" width="180" />
+        <el-table-column prop="template_name" label="考评表名称" min-width="200" />
+        <el-table-column prop="teacher_count" label="分配教师数" width="120">
+          <template #default="{ row }">
+            <el-tag type="info">{{ row.teacher_count }} 人</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="status_summary" label="状态统计" min-width="250">
+          <template #default="{ row }">
+            <div class="status-summary">
+              <el-tag v-if="row.status_counts.pending > 0" type="info" size="small">
+                未查收: {{ row.status_counts.pending }}
+              </el-tag>
+              <el-tag v-if="row.status_counts.viewed > 0" type="warning" size="small">
+                已查收: {{ row.status_counts.viewed }}
+              </el-tag>
+              <el-tag v-if="row.status_counts.submitted > 0" type="warning" size="small">
+                已提交: {{ row.status_counts.submitted }}
+              </el-tag>
+              <el-tag v-if="row.status_counts.scored > 0" type="success" size="small">
+                已评分: {{ row.status_counts.scored }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="deadline" label="截止时间" width="180" />
+        <el-table-column label="操作" width="200" fixed="right">
+          <template #default="{ row }">
+            <div class="action-buttons">
+              <el-button 
+                link 
+                type="primary" 
+                size="small"
+                @click="viewTemplateDetails(row)"
+              >
+                <el-icon><view /></el-icon>
+                查看详情
+              </el-button>
+              <el-button 
+                link 
+                type="info" 
+                size="small"
+                @click="switchToTeacherView(row.template_id)"
+              >
+                <el-icon><user /></el-icon>
+                按教师查看
               </el-button>
             </div>
           </template>
@@ -334,10 +404,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Edit, View, Document, Folder, ChatLineRound, Check } from '@element-plus/icons-vue'
+import { Search, Edit, View, Document, Folder, ChatLineRound, Check, User } from '@element-plus/icons-vue'
 import axios from 'axios'
+import { waitForAuth } from '../utils/authState'
 
 const filters = ref({
   status: '',
@@ -348,11 +419,51 @@ const filters = ref({
 const tasks = ref([])
 const loading = ref(false)
 const scoreLoading = ref(false)
+const viewMode = ref('template') // 默认按模板分组显示
 
 const pagination = ref({
   page: 1,
   pageSize: 10,
   total: 0
+})
+
+// 计算按模板分组的任务
+const groupedTasks = computed(() => {
+  if (viewMode.value !== 'template') return []
+  
+  const groups = new Map()
+  
+  tasks.value.forEach((task: any) => {
+    const templateId = task.template_id
+    
+    if (!groups.has(templateId)) {
+      groups.set(templateId, {
+        template_id: templateId,
+        template_name: task.template_name,
+        teacher_count: 0,
+        status_counts: {
+          pending: 0,
+          viewed: 0,
+          submitted: 0,
+          scored: 0
+        },
+        deadline: task.deadline,
+        tasks: []
+      })
+    }
+    
+    const group = groups.get(templateId)
+    group.teacher_count++
+    group.tasks.push(task)
+    
+    // 统计状态
+    const status = task.display_status || task.status
+    if (group.status_counts[status] !== undefined) {
+      group.status_counts[status]++
+    }
+  })
+  
+  return Array.from(groups.values())
 })
 
 const scoreDialogVisible = ref(false)
@@ -400,19 +511,8 @@ const loadTasks = async () => {
       }
     })
     
-    console.log('任务列表响应:', response.data)
     tasks.value = response.data.tasks || []
     pagination.value.total = response.data.total || 0
-    
-    // 调试：检查任务数据
-    if (tasks.value.length > 0) {
-      console.log('第一个任务数据:', tasks.value[0])
-      const submittedTask = tasks.value.find(t => t.status === 'submitted')
-      if (submittedTask) {
-        console.log('已提交任务示例:', submittedTask)
-        console.log('评分标准:', submittedTask.scoring_criteria)
-      }
-    }
     
   } catch (error: any) {
     console.error('加载任务失败:', error)
@@ -433,7 +533,6 @@ const resetFilters = () => {
 }
 
 const openScoreDialog = (task: any) => {
-  console.log('打开评分对话框，任务数据:', task)
   currentTask.value = task
   
   // 初始化评分数据 - 使用对象格式而不是数组
@@ -454,7 +553,6 @@ const openScoreDialog = (task: any) => {
     }
   }
   
-  console.log('初始化评分数据:', scoreData.value)
   scoreDialogVisible.value = true
 }
 
@@ -462,7 +560,6 @@ const calculateTotalScore = () => {
   if (!currentTask.value?.scoring_criteria) return 0
   // scoreData.scores is now an object: { "完成度": 8, "准确性": 9, ... }
   const total = Object.values(scoreData.value.scores).reduce((sum: number, score: any) => sum + (score || 0), 0)
-  console.log('计算总分:', scoreData.value.scores, '=', total)
   return total
 }
 
@@ -471,7 +568,6 @@ const calculatePercentage = () => {
   const maxScore = currentTask.value?.total_score || 100
   if (maxScore === 0) return 0
   const percentage = Math.round((total / maxScore) * 100)
-  console.log('计算百分比:', total, '/', maxScore, '=', percentage, '%')
   return percentage
 }
 
@@ -492,7 +588,6 @@ const getProgressColor = (percentage: number) => {
 }
 
 const onScoreChange = () => {
-  console.log('评分变化:', scoreData.value.scores)
   // 触发重新渲染
 }
 
@@ -506,25 +601,16 @@ const resetScoreData = () => {
 const submitScore = async () => {
   if (!currentTask.value) return
 
-  console.log('提交评分，当前任务:', currentTask.value.task_id)
-  console.log('评分数据:', scoreData.value)
-
   scoreLoading.value = true
   try {
     // scoreData.scores 已经是对象格式: { "完成度": 8, "准确性": 9, ... }
     const scoresObj = scoreData.value.scores
-    
-    console.log('转换后的评分对象:', scoresObj)
-    
     const scoresJson = JSON.stringify(scoresObj)
-    console.log('JSON字符串:', scoresJson)
 
     // 构建Query参数
     const params = new URLSearchParams()
     params.append('scores', scoresJson)
     params.append('feedback', scoreData.value.feedback)
-
-    console.log('请求URL:', `http://localhost:8001/api/evaluation-tasks/${currentTask.value.task_id}/score?${params.toString()}`)
 
     const response = await axios.post(
       `http://localhost:8001/api/evaluation-tasks/${currentTask.value.task_id}/score?${params.toString()}`,
@@ -537,13 +623,11 @@ const submitScore = async () => {
       }
     )
 
-    console.log('评分响应:', response.data)
     ElMessage.success('评分成功')
     scoreDialogVisible.value = false
     loadTasks()
   } catch (error: any) {
     console.error('评分错误:', error)
-    console.error('错误详情:', error.response?.data)
     ElMessage.error(`评分失败: ${error.response?.data?.detail || error.message}`)
   } finally {
     scoreLoading.value = false
@@ -576,27 +660,37 @@ const downloadFile = (file: any) => {
 watch(
   () => scoreData.value.scores,
   (newScores) => {
-    console.log('评分数据变化:', newScores)
     // 触发重新渲染
   },
   { deep: true }
 )
 
 const viewScore = (task: any) => {
-  console.log('=== 查看评分 ===')
-  console.log('任务数据:', task)
-  console.log('scores:', task.scores)
-  console.log('score:', task.score)
-  console.log('total_score:', task.total_score)
-  console.log('scoring_criteria:', task.scoring_criteria)
-  console.log('scoring_feedback:', task.scoring_feedback)
-  console.log('scored_at:', task.scored_at)
-  
   currentTask.value = task
   scoreDetailDialogVisible.value = true
 }
 
-onMounted(() => {
+// 处理显示模式变化
+const handleViewModeChange = () => {
+  console.log('切换显示模式:', viewMode.value)
+}
+
+// 查看模板详情（按模板分组时）
+const viewTemplateDetails = (group: any) => {
+  ElMessage.info(`模板: ${group.template_name}, 共分配给 ${group.teacher_count} 位教师`)
+  // 可以打开一个对话框显示详细信息
+}
+
+// 切换到按教师查看
+const switchToTeacherView = (templateId: string) => {
+  viewMode.value = 'teacher'
+  filters.value.template_id = templateId
+  loadTasks()
+}
+
+onMounted(async () => {
+  // 等待认证准备就绪
+  await waitForAuth();
   loadTasks()
 })
 </script>
@@ -1113,5 +1207,15 @@ onMounted(() => {
 
 .score-meta {
   margin-top: 1.5rem;
+}
+
+.status-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.status-summary .el-tag {
+  font-size: 0.85rem;
 }
 </style>

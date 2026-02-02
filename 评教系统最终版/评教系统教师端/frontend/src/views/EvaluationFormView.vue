@@ -33,25 +33,25 @@
         <el-table-column prop="deadline" label="截止时间" width="180" />
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button 
-              v-if="row.status === 'pending'" 
-              link 
-              type="primary" 
-              @click="uploadFiles(row)"
-            >
-              上传文件
-            </el-button>
-            <el-button link type="primary" @click="viewDetail(row)">
-              查看
-            </el-button>
-            <el-button 
-              v-if="row.status === 'scored'" 
-              link 
-              type="success" 
-              @click="viewScore(row)"
-            >
-              查看评分
-            </el-button>
+            <div style="position: relative; z-index: 10; display: flex; gap: 8px;">
+              <el-button 
+                v-if="row.status === 'pending'" 
+                link 
+                type="primary" 
+                @click="uploadFiles(row)"
+                style="cursor: pointer; pointer-events: auto;"
+              >
+                上传文件
+              </el-button>
+              <el-button 
+                link 
+                type="primary" 
+                @click="viewDetail(row)"
+                style="cursor: pointer; pointer-events: auto;"
+              >
+                查看详情
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -76,9 +76,10 @@
             :limit="currentTask.submission_requirements?.max_files || 3"
             accept=".pdf,.xlsx,.xls,.docx,.doc"
             multiple
+            drag
           >
             <template #trigger>
-              <el-button type="primary">选择文件</el-button>
+              <el-button type="primary" style="position: relative; z-index: 10;">选择文件</el-button>
             </template>
             <template #tip>
               <div class="el-upload__tip">
@@ -152,47 +153,6 @@
         </div>
       </div>
     </el-dialog>
-    
-    <!-- 评分详情对话框 -->
-    <el-dialog v-model="scoreDialogVisible" title="评分详情" width="700px">
-      <div v-if="currentTask && currentTask.score !== null && currentTask.score !== undefined" class="score-dialog">
-        <div class="score-header">
-          <div class="score-display">
-            <span class="score-label">总分</span>
-            <span class="score-value">{{ currentTask.score }}</span>
-            <span class="score-max">/ {{ currentTask.total_score }}</span>
-          </div>
-          <div class="score-percentage">
-            {{ calculatePercentage(currentTask.score, currentTask.total_score) }}%
-          </div>
-        </div>
-        
-        <div v-if="currentTask.scoring_criteria && currentTask.scoring_criteria.length > 0" class="criteria-scores">
-          <h4>各项评分</h4>
-          <div v-for="criterion in currentTask.scoring_criteria" :key="criterion.name" class="criterion-score">
-            <span class="criterion-name">{{ criterion.name }}</span>
-            <span class="criterion-value">
-              {{ getCriterionScore(criterion.name) }} / {{ criterion.max_score }}
-            </span>
-            <span class="criterion-percentage">
-              {{ criterion.max_score ? Math.round((getCriterionScore(criterion.name) / criterion.max_score) * 100) : 0 }}%
-            </span>
-          </div>
-        </div>
-        
-        <div v-if="currentTask.scoring_feedback" class="feedback-section">
-          <h4>评分反馈</h4>
-          <p>{{ currentTask.scoring_feedback }}</p>
-        </div>
-        
-        <div class="score-info">
-          <p><strong>评分时间：</strong> {{ currentTask.scored_at || '-' }}</p>
-        </div>
-      </div>
-      <div v-else class="score-dialog">
-        <p style="color: #999; text-align: center;">暂无评分数据</p>
-      </div>
-    </el-dialog>
   </div>
 </template>
 
@@ -208,7 +168,6 @@ const uploadLoading = ref(false)
 
 const uploadDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
-const scoreDialogVisible = ref(false)
 
 const currentTask = ref<any>(null)
 const fileList = ref([])
@@ -372,31 +331,12 @@ const viewDetail = async (task: any) => {
   }
 }
 
-const viewScore = (task: any) => {
-  currentTask.value = task
-  scoreDialogVisible.value = true
-}
-
 const formatFileSize = (bytes: number) => {
   if (bytes === 0) return '0 B'
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
-}
-
-const calculatePercentage = (score: number | null | undefined, total: number | null | undefined) => {
-  if (score === null || score === undefined || total === null || total === undefined || total === 0) {
-    return 0
-  }
-  return Math.round((score / total) * 100)
-}
-
-const getCriterionScore = (criterionName: string) => {
-  if (!currentTask.value || !currentTask.value.scores) {
-    return 0
-  }
-  return currentTask.value.scores[criterionName] || 0
 }
 
 const downloadTemplateFile = (task: any) => {
@@ -444,6 +384,8 @@ onMounted(() => {
 <style scoped>
 .evaluation-form-view {
   width: 100%;
+  position: relative;
+  z-index: auto;
 }
 
 .page-header {
@@ -451,6 +393,8 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.5rem;
+  position: relative;
+  z-index: auto;
 }
 
 .page-header h2 {
@@ -462,6 +406,35 @@ onMounted(() => {
 .task-card {
   border-radius: 8px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  position: relative;
+  z-index: auto;
+}
+
+/* 确保表格中的按钮可以点击 */
+.el-table__body-wrapper {
+  position: relative;
+  z-index: auto;
+}
+
+.el-table__fixed-right {
+  position: relative;
+  z-index: 10;
+}
+
+.el-table__fixed-right::before {
+  display: none;
+}
+
+/* 确保按钮可以点击 */
+.el-button {
+  position: relative;
+  z-index: auto;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.el-button:hover {
+  pointer-events: auto;
 }
 
 .upload-dialog {
@@ -533,114 +506,5 @@ onMounted(() => {
 .files-section h4 {
   margin-bottom: 1rem;
   color: #212121;
-}
-
-.score-dialog {
-  padding: 1rem 0;
-}
-
-.score-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.5rem;
-  background: linear-gradient(135deg, #f6f8fb 0%, #e8f0f8 100%);
-  border-radius: 8px;
-  margin-bottom: 1.5rem;
-}
-
-.score-display {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-}
-
-.score-label {
-  font-size: 0.9rem;
-  color: #757575;
-}
-
-.score-value {
-  font-size: 2rem;
-  font-weight: bold;
-  color: #ff3b30;
-}
-
-.score-max {
-  font-size: 0.9rem;
-  color: #757575;
-}
-
-.score-percentage {
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: #4CAF50;
-}
-
-.criteria-scores {
-  margin-bottom: 1.5rem;
-}
-
-.criteria-scores h4 {
-  margin-bottom: 1rem;
-  color: #212121;
-}
-
-.criterion-score {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.criterion-name {
-  font-weight: 500;
-  color: #212121;
-  min-width: 100px;
-}
-
-.criterion-value {
-  color: #ff3b30;
-  font-weight: bold;
-  min-width: 80px;
-  text-align: center;
-}
-
-.criterion-percentage {
-  color: #4CAF50;
-  font-weight: bold;
-  min-width: 60px;
-  text-align: right;
-}
-
-.feedback-section {
-  padding: 1rem;
-  background-color: #f6f8fb;
-  border-radius: 4px;
-}
-
-.feedback-section h4 {
-  margin-top: 0;
-  color: #212121;
-}
-
-.feedback-section p {
-  margin: 0;
-  color: #424242;
-  line-height: 1.6;
-}
-
-.score-info {
-  padding: 1rem;
-  background-color: #f6f8fb;
-  border-radius: 4px;
-  margin-top: 1.5rem;
-}
-
-.score-info p {
-  margin: 0.5rem 0;
-  font-size: 0.95rem;
-  color: #424242;
 }
 </style>

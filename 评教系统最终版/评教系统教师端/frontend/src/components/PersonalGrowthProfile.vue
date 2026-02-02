@@ -267,8 +267,8 @@
         </el-form-item>
         <el-form-item label="成就类型" prop="type">
           <el-radio-group v-model="newAchievement.type">
-            <el-radio :label="'award'">荣誉奖项</el-radio>
-            <el-radio :label="'achievement'">教学成果</el-radio>
+            <el-radio value="award">荣誉奖项</el-radio>
+            <el-radio value="achievement">教学成果</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>

@@ -15,9 +15,9 @@
           
           <el-form-item label="报告类型">
             <el-radio-group v-model="reportForm.reportType" @change="loadReportData">
-              <el-radio :label="'个人综合报告'" />
-              <el-radio :label="'课程详细报告'" />
-              <el-radio :label="'对比分析报告'" />
+              <el-radio value="个人综合报告">个人综合报告</el-radio>
+              <el-radio value="课程详细报告">课程详细报告</el-radio>
+              <el-radio value="对比分析报告">对比分析报告</el-radio>
             </el-radio-group>
           </el-form-item>
           

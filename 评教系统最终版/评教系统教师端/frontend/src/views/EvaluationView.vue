@@ -54,12 +54,17 @@
             <el-progress :percentage="scope.row.completionRate" :format="formatPercentage" size="small" />
           </template>
         </el-table-column>
-        <el-table-column prop="averageScore" label="平均得分" width="120">
+        <el-table-column prop="status" label="评分状态" width="120">
           <template #default="scope">
-            <el-rate v-model="scope.row.averageScore" disabled show-score score-template="{value}" />
+            <el-tag
+              :type="getScoreStatusTagType(scope.row.status)"
+              size="small"
+            >
+              {{ getScoreStatusText(scope.row.status) }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="120">
+        <el-table-column prop="status" label="任务状态" width="120">
           <template #default="scope">
             <el-tag
               :type="getStatusTagType(scope.row.status)"
@@ -117,6 +122,7 @@
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
+import { ElMessageBox } from 'element-plus'
 
 // 筛选表单
 const filterForm = reactive({
@@ -204,7 +210,35 @@ const formatPercentage = (percentage: number) => {
   return `${percentage}%`
 }
 
-// 获取状态标签类型
+// 获取评分状态标签类型
+const getScoreStatusTagType = (status: string) => {
+  switch (status) {
+    case 'completed':
+      return 'success'
+    case 'in_progress':
+      return 'warning'
+    case 'not_started':
+      return 'info'
+    default:
+      return 'info'
+  }
+}
+
+// 获取评分状态文本
+const getScoreStatusText = (status: string) => {
+  switch (status) {
+    case 'completed':
+      return '已评分'
+    case 'in_progress':
+      return '评分中'
+    case 'not_started':
+      return '未评分'
+    default:
+      return '未评分'
+  }
+}
+
+// 获取任务状态标签类型
 const getStatusTagType = (status: string) => {
   switch (status) {
     case 'completed':
@@ -218,7 +252,7 @@ const getStatusTagType = (status: string) => {
   }
 }
 
-// 获取状态文本
+// 获取任务状态文本
 const getStatusText = (status: string) => {
   switch (status) {
     case 'completed':
@@ -245,10 +279,26 @@ const resetFilter = () => {
   filterForm.status = 'all'
 }
 
-// 查看评价详情
+// 查看评价详情（不显示评分）
 const viewEvaluationDetail = (row: any) => {
-  console.log('查看评价详情:', row)
-  // 这里可以添加查看详情的逻辑
+  console.log('查看评价详情（不含评分）:', row)
+  ElMessageBox.alert(
+    `<div style="line-height: 1.8;">
+      <p><strong>课程名称：</strong>${row.courseName}</p>
+      <p><strong>班级：</strong>${row.classInfo}</p>
+      <p><strong>应评人数：</strong>${row.studentCount}人</p>
+      <p><strong>已评人数：</strong>${row.completedCount}人</p>
+      <p><strong>参评率：</strong>${row.completionRate}%</p>
+      <p><strong>评价日期：</strong>${row.evaluationDate}</p>
+      <p style="color: #67C23A; margin-top: 10px;"><strong>评分状态：</strong>已评分</p>
+      <p style="color: #909399; font-size: 12px; margin-top: 10px;">注：具体评分由管理员统一管理，教师端不显示评分详情</p>
+    </div>`,
+    '评价详情',
+    {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '确定'
+    }
+  )
 }
 
 // 查看评价进度

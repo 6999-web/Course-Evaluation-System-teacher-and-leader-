@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from .auth import router as auth_router
 from .dashboard import router as dashboard_router
 from .evaluation import router as evaluation_router
 from .feedback import router as feedback_router
@@ -11,6 +12,9 @@ from .admin_sync import router as admin_sync_router
 from .evaluation_task import router as evaluation_task_router
 
 api_router = APIRouter()
+
+# 注册认证路由
+api_router.include_router(auth_router, tags=["auth"])
 
 # 注册各个模块的路由
 api_router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
