@@ -54,7 +54,9 @@
         style="width: 100%"
         :loading="loading"
         class="task-table"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column type="selection" width="50" />
         <el-table-column prop="task_id" label="任务ID" width="150" />
         <el-table-column prop="template_name" label="考评表名称" min-width="150" />
         <el-table-column prop="teacher_id" label="教师ID" width="120" />
@@ -79,10 +81,21 @@
                 link 
                 type="primary" 
                 size="small"
+                @click="autoScore(row)"
+                :loading="row.autoScoring || false"
+              >
+                <el-icon><star /></el-icon>
+                AI自动评分
+              </el-button>
+              <el-button 
+                v-if="row.status === 'submitted'" 
+                link 
+                type="info" 
+                size="small"
                 @click="openScoreDialog(row)"
               >
                 <el-icon><edit /></el-icon>
-                评分
+                手动评分
               </el-button>
               <el-button 
                 v-if="row.status === 'scored'" 
@@ -178,6 +191,25 @@
           </template>
         </el-table-column>
       </el-table>
+      
+      <!-- 批量操作按钮 -->
+      <div class="batch-operations" v-if="viewMode === 'teacher'">
+        <div v-if="selectedTasks.length > 0">
+          <el-button type="primary" @click="batchAutoScore" :loading="batchScoreLoading">
+            <el-icon><star /></el-icon>
+            AI批量自动评分 ({{ selectedTasks.length }})
+          </el-button>
+          <el-button type="info" @click="batchScore" :loading="batchScoreLoading">
+            <el-icon><edit /></el-icon>
+            批量手动评分 ({{ selectedTasks.length }})
+          </el-button>
+          <el-button @click="clearSelection">清除选择</el-button>
+        </div>
+        <el-button type="success" @click="openExportDialog">
+          <el-icon><download /></el-icon>
+          导出评分结果
+        </el-button>
+      </div>
       
       <!-- 分页 -->
       <el-pagination
@@ -360,21 +392,45 @@
             各项评分详情
           </h4>
           <div class="criteria-grid">
-            <div v-for="criterion in currentTask.scoring_criteria" :key="criterion.name" class="criterion-card">
-              <div class="criterion-header">
-                <span class="criterion-name">{{ criterion.name }}</span>
-                <span class="criterion-score">
-                  {{ (currentTask.scores && currentTask.scores[criterion.name] !== undefined) ? currentTask.scores[criterion.name] : 0 }} / {{ criterion.max_score }}
-                </span>
+            <!-- 如果有AI评分的详细结果，使用AI评分结果 -->
+            <template v-if="currentTask.scores && currentTask.scores.score_details && currentTask.scores.score_details.length > 0">
+              <div v-for="detail in currentTask.scores.score_details" :key="detail.indicator" class="criterion-card">
+                <div class="criterion-header">
+                  <span class="criterion-name">{{ detail.indicator }}</span>
+                  <span class="criterion-score">
+                    {{ detail.score }} / {{ detail.max_score }}
+                  </span>
+                </div>
+                <div class="criterion-progress">
+                  <el-progress 
+                    :percentage="detail.max_score ? Math.round((detail.score / detail.max_score) * 100) : 0"
+                    :color="getProgressColor(detail.max_score ? Math.round((detail.score / detail.max_score) * 100) : 0)"
+                    :stroke-width="8"
+                  />
+                </div>
+                <div v-if="detail.reason" class="criterion-reason">
+                  <el-text type="info" size="small">{{ detail.reason }}</el-text>
+                </div>
               </div>
-              <div class="criterion-progress">
-                <el-progress 
-                  :percentage="criterion.max_score ? Math.round((((currentTask.scores && currentTask.scores[criterion.name]) || 0) / criterion.max_score) * 100) : 0"
-                  :color="getProgressColor(criterion.max_score ? Math.round((((currentTask.scores && currentTask.scores[criterion.name]) || 0) / criterion.max_score) * 100) : 0)"
-                  :stroke-width="8"
-                />
+            </template>
+            <!-- 否则使用考评表标准显示 -->
+            <template v-else>
+              <div v-for="criterion in currentTask.scoring_criteria" :key="criterion.name" class="criterion-card">
+                <div class="criterion-header">
+                  <span class="criterion-name">{{ criterion.name }}</span>
+                  <span class="criterion-score">
+                    {{ (currentTask.scores && currentTask.scores[criterion.name] !== undefined) ? currentTask.scores[criterion.name] : 0 }} / {{ criterion.max_score }}
+                  </span>
+                </div>
+                <div class="criterion-progress">
+                  <el-progress 
+                    :percentage="criterion.max_score ? Math.round((((currentTask.scores && currentTask.scores[criterion.name]) || 0) / criterion.max_score) * 100) : 0"
+                    :color="getProgressColor(criterion.max_score ? Math.round((((currentTask.scores && currentTask.scores[criterion.name]) || 0) / criterion.max_score) * 100) : 0)"
+                    :stroke-width="8"
+                  />
+                </div>
               </div>
-            </div>
+            </template>
           </div>
         </div>
         
@@ -383,8 +439,8 @@
             <el-icon><chat-line-round /></el-icon>
             评分反馈
           </h4>
-          <div class="feedback-content">
-            <p>{{ currentTask.scoring_feedback }}</p>
+          <div class="feedback-content structured-feedback">
+            <div v-html="formatFeedback(currentTask.scoring_feedback)"></div>
           </div>
         </div>
         
@@ -400,13 +456,206 @@
         </div>
       </div>
     </el-dialog>
+    
+    <!-- 批量评分对话框 -->
+    <el-dialog v-model="batchScoreDialogVisible" title="批量手动评分" width="900px" @close="resetBatchScoreData">
+      <div class="batch-score-dialog">
+        <el-alert
+          title="批量手动评分说明"
+          type="info"
+          description="将对选中的所有任务进行手动评分。您需要为每个任务手动输入分数。如需AI自动评分，请使用AI批量自动评分功能。"
+          :closable="false"
+          show-icon
+          class="batch-alert"
+        />
+        
+        <div class="batch-tasks-list">
+          <h4>待评分任务列表 ({{ selectedTasks.length }} 项)</h4>
+          <el-table :data="selectedTasks" stripe max-height="300">
+            <el-table-column prop="task_id" label="任务ID" width="120" />
+            <el-table-column prop="template_name" label="考评表" min-width="150" />
+            <el-table-column prop="teacher_id" label="教师ID" width="100" />
+            <el-table-column prop="status" label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="getStatusType(row.display_status || row.status)">
+                  {{ getStatusText(row.display_status || row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        
+        <div class="batch-options">
+          <el-form :model="batchScoreOptions" label-width="120px">
+            <el-form-item label="评分方式">
+              <el-radio-group v-model="batchScoreOptions.scoreType">
+                <el-radio label="manual">手动评分</el-radio>
+                <el-radio label="template" disabled>使用模板 (开发中)</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="默认分数">
+              <el-input-number v-model="batchScoreOptions.defaultScore" :min="0" :max="100" />
+              <span class="form-hint">为所有任务设置相同的默认分数</span>
+            </el-form-item>
+            <el-form-item label="是否覆盖">
+              <el-switch v-model="batchScoreOptions.overwrite" />
+              <span class="form-hint">如果已有评分，是否覆盖</span>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+      
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="batchScoreDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="executeBatchScore" :loading="batchScoreLoading">
+            <el-icon><check /></el-icon>
+            开始评分
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+    
+    <!-- 导出评分结果对话框 -->
+    <el-dialog v-model="exportDialogVisible" title="导出评分结果" width="900px" @close="resetExportData">
+      <div class="export-dialog">
+        <el-alert
+          title="导出说明"
+          type="info"
+          description="将导出所有评分结果为 Excel 文件。可以通过筛选条件来选择要导出的数据。"
+          :closable="false"
+          show-icon
+          class="export-alert"
+        />
+        
+        <!-- 筛选条件 -->
+        <div class="export-filters">
+          <h4>筛选条件</h4>
+          <el-form :model="exportFilters" label-width="100px">
+            <el-row :gutter="20">
+              <el-col :xs="24" :sm="12" :md="6">
+                <el-form-item label="文件类型">
+                  <el-select v-model="exportFilters.fileType" placeholder="所有类型" clearable>
+                    <el-option label="教案" value="教案" />
+                    <el-option label="教学反思" value="教学反思" />
+                    <el-option label="教研/听课记录" value="教研/听课记录" />
+                    <el-option label="成绩/学情分析" value="成绩/学情分析" />
+                    <el-option label="课件" value="课件" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12" :md="6">
+                <el-form-item label="等级">
+                  <el-select v-model="exportFilters.grade" placeholder="所有等级" clearable>
+                    <el-option label="优秀" value="优秀" />
+                    <el-option label="良好" value="良好" />
+                    <el-option label="合格" value="合格" />
+                    <el-option label="不合格" value="不合格" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12" :md="6">
+                <el-form-item label="开始日期">
+                  <el-date-picker 
+                    v-model="exportFilters.startDate" 
+                    type="date"
+                    placeholder="选择开始日期"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12" :md="6">
+                <el-form-item label="结束日期">
+                  <el-date-picker 
+                    v-model="exportFilters.endDate" 
+                    type="date"
+                    placeholder="选择结束日期"
+                  />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :xs="24" :sm="12" :md="6">
+                <el-button type="primary" @click="loadExportData" :loading="exportLoading">
+                  <el-icon><search /></el-icon>
+                  查询
+                </el-button>
+                <el-button @click="resetExportFilters">重置</el-button>
+              </el-col>
+            </el-row>
+          </el-form>
+        </div>
+        
+        <!-- 数据预览 -->
+        <div class="export-preview" v-if="exportData.length > 0">
+          <h4>导出数据预览 ({{ exportData.length }} 条)</h4>
+          <el-table :data="exportData" stripe max-height="300">
+            <el-table-column prop="submission_id" label="提交ID" width="120" />
+            <el-table-column prop="file_name" label="文件名" min-width="150" />
+            <el-table-column prop="file_type" label="文件类型" width="100" />
+            <el-table-column prop="final_score" label="最终得分" width="100" />
+            <el-table-column prop="grade" label="等级" width="80">
+              <template #default="{ row }">
+                <el-tag :type="getGradeType(row.grade)">
+                  {{ row.grade }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="scored_at" label="评分时间" width="180">
+              <template #default="{ row }">
+                {{ formatDate(row.scored_at) }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        
+        <!-- 导出统计 -->
+        <div v-if="exportData.length > 0" class="export-stats">
+          <el-row :gutter="20">
+            <el-col :xs="24" :sm="12" :md="6">
+              <div class="stat-item">
+                <span class="stat-label">总数</span>
+                <span class="stat-value">{{ exportData.length }}</span>
+              </div>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="6">
+              <div class="stat-item">
+                <span class="stat-label">平均分</span>
+                <span class="stat-value">{{ calculateAverageScore().toFixed(2) }}</span>
+              </div>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="6">
+              <div class="stat-item">
+                <span class="stat-label">最高分</span>
+                <span class="stat-value">{{ calculateMaxScore() }}</span>
+              </div>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="6">
+              <div class="stat-item">
+                <span class="stat-label">最低分</span>
+                <span class="stat-value">{{ calculateMinScore() }}</span>
+              </div>
+            </el-col>
+          </el-row>
+        </div>
+      </div>
+      
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="exportDialogVisible = false">取消</el-button>
+          <el-button type="success" @click="executeExport" :loading="exporting" :disabled="exportData.length === 0">
+            <el-icon><download /></el-icon>
+            导出Excel
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Search, Edit, View, Document, Folder, ChatLineRound, Check, User } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Edit, View, Document, Folder, ChatLineRound, Check, User, Download, Star } from '@element-plus/icons-vue'
 import axios from 'axios'
 import { waitForAuth } from '../utils/authState'
 
@@ -470,6 +719,26 @@ const scoreDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
 const filesDialogVisible = ref(false)
 const scoreDetailDialogVisible = ref(false)  // ← 新增
+const batchScoreDialogVisible = ref(false)
+const selectedTasks = ref<any[]>([])
+const batchScoreLoading = ref(false)
+const batchScoreOptions = ref({
+  scoreType: 'manual',
+  defaultScore: 80,
+  overwrite: false
+})
+
+// Export dialog state
+const exportDialogVisible = ref(false)
+const exportLoading = ref(false)
+const exporting = ref(false)
+const exportData = ref<any[]>([])
+const exportFilters = ref({
+  fileType: '',
+  grade: '',
+  startDate: null,
+  endDate: null
+})
 
 const currentTask = ref<any>(null)
 const scoreData = ref({
@@ -587,6 +856,28 @@ const getProgressColor = (percentage: number) => {
   return '#f56c6c'
 }
 
+// 格式化反馈内容，将结构化文本转换为HTML
+const formatFeedback = (feedback: string) => {
+  if (!feedback) return ''
+  
+  // 替换【标题】为带样式的标题
+  let formatted = feedback.replace(/【([^】]+)】/g, '<h5 class="feedback-title">$1</h5>')
+  
+  // 替换 • 开头的列表项
+  formatted = formatted.replace(/^•\s+(.+)$/gm, '<li class="feedback-item">$1</li>')
+  
+  // 将连续的列表项包裹在 ul 标签中
+  formatted = formatted.replace(/(<li class="feedback-item">.*?<\/li>\s*)+/gs, '<ul class="feedback-list">$&</ul>')
+  
+  // 替换换行符为 <br>
+  formatted = formatted.replace(/\n/g, '<br>')
+  
+  // 包裹在段落中
+  formatted = `<div class="formatted-feedback">${formatted}</div>`
+  
+  return formatted
+}
+
 const onScoreChange = () => {
   // 触发重新渲染
 }
@@ -688,6 +979,433 @@ const switchToTeacherView = (templateId: string) => {
   loadTasks()
 }
 
+// 处理表格选择变化
+const handleSelectionChange = (selection: any[]) => {
+  selectedTasks.value = selection
+}
+
+// 清除选择
+const clearSelection = () => {
+  selectedTasks.value = []
+}
+
+// AI自动评分单个任务
+const autoScore = async (task: any) => {
+  if (!task) return
+
+  // 设置加载状态
+  task.autoScoring = true
+  
+  try {
+    ElMessage.info('正在调用DeepSeek AI进行自动评分，请稍候...')
+    
+    // 调用自动评分API
+    const response = await axios.post(
+      `http://localhost:8001/api/scoring/score/${task.task_id}`,
+      [], // 空的加分项数组
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token') || sessionStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 60000 // 60秒超时
+      }
+    )
+
+    if (response.data.success) {
+      const result = response.data.scoring_result
+      
+      // 显示评分结果
+      ElMessage({
+        type: 'success',
+        message: `AI自动评分完成！得分: ${result.final_score}分 (${result.grade})`,
+        duration: 5000
+      })
+      
+      // 显示详细结果
+      showAutoScoreResult(result, task)
+      
+      // 刷新任务列表
+      loadTasks()
+    } else {
+      ElMessage.error('自动评分失败')
+    }
+  } catch (error: any) {
+    console.error('自动评分错误:', error)
+    let errorMsg = '自动评分失败'
+    
+    if (error.response?.data?.detail) {
+      errorMsg = error.response.data.detail
+    } else if (error.message) {
+      errorMsg = error.message
+    }
+    
+    ElMessage.error(errorMsg)
+  } finally {
+    task.autoScoring = false
+  }
+}
+
+// 显示自动评分结果
+const showAutoScoreResult = (result: any, task: any) => {
+  const h = ElMessage
+  
+  let message = `🎉 AI自动评分完成！\n\n`
+  message += `📊 最终得分: ${result.final_score}分\n`
+  message += `📈 评定等级: ${result.grade}\n`
+  message += `⚠️ 触发否决: ${result.veto_triggered ? '是' : '否'}\n`
+  
+  if (result.veto_triggered) {
+    message += `🚫 否决原因: ${result.veto_reason}\n`
+  } else if (result.score_details && result.score_details.length > 0) {
+    message += `\n📋 详细评分:\n`
+    result.score_details.forEach((detail: any) => {
+      message += `• ${detail.indicator}: ${detail.score}/${detail.max_score}分\n`
+    })
+  }
+  
+  if (result.summary) {
+    message += `\n💬 AI评价: ${result.summary.substring(0, 100)}...\n`
+  }
+  
+  ElMessageBox.alert(message, 'AI自动评分结果', {
+    confirmButtonText: '查看详情',
+    type: result.veto_triggered ? 'warning' : 'success',
+    callback: () => {
+      // 打开评分详情对话框
+      viewScore(task)
+    }
+  })
+}
+
+// AI批量自动评分
+const batchAutoScore = async () => {
+  if (selectedTasks.value.length === 0) {
+    ElMessage.warning('请先选择要评分的任务')
+    return
+  }
+
+  // 确认对话框
+  try {
+    await ElMessageBox.confirm(
+      `确定要对选中的 ${selectedTasks.value.length} 个任务进行AI自动评分吗？\n\n这将调用DeepSeek API对每个提交的文件进行智能评分。`,
+      'AI批量自动评分确认',
+      {
+        confirmButtonText: '开始评分',
+        cancelButtonText: '取消',
+        type: 'info',
+        beforeClose: (action, instance, done) => {
+          if (action === 'confirm') {
+            instance.confirmButtonLoading = true
+            instance.confirmButtonText = '评分中...'
+            executeBatchAutoScore().finally(() => {
+              done()
+            })
+          } else {
+            done()
+          }
+        }
+      }
+    )
+  } catch {
+    // 用户取消
+    return
+  }
+}
+
+// 执行AI批量自动评分
+const executeBatchAutoScore = async () => {
+  if (selectedTasks.value.length === 0) {
+    ElMessage.warning('请先选择要评分的任务')
+    return
+  }
+
+  batchScoreLoading.value = true
+  
+  try {
+    // 获取提交ID列表
+    const submission_ids = selectedTasks.value.map((task: any) => task.task_id)
+    
+    ElMessage.info(`开始AI批量评分 ${submission_ids.length} 个任务，请耐心等待...`)
+    
+    const response = await axios.post(
+      'http://localhost:8001/api/scoring/batch-score',
+      submission_ids,
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token') || sessionStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 300000 // 5分钟超时，因为批量评分需要更长时间
+      }
+    )
+
+    const { total, success, failed, results } = response.data
+    
+    // 显示结果统计
+    let message = `🎉 AI批量评分完成！\n\n`
+    message += `📊 总数: ${total}\n`
+    message += `✅ 成功: ${success}\n`
+    message += `❌ 失败: ${failed}\n`
+    message += `📈 成功率: ${Math.round((success / total) * 100)}%\n`
+    
+    if (results && results.length > 0) {
+      message += `\n📋 详细结果:\n`
+      results.slice(0, 5).forEach((result: any, index: number) => {
+        if (result.success) {
+          const scoring = result.scoring_result
+          message += `${index + 1}. ✅ ${scoring.final_score}分 (${scoring.grade})\n`
+        } else {
+          message += `${index + 1}. ❌ ${result.error}\n`
+        }
+      })
+      
+      if (results.length > 5) {
+        message += `... 还有 ${results.length - 5} 个结果\n`
+      }
+    }
+    
+    ElMessageBox.alert(message, 'AI批量评分结果', {
+      confirmButtonText: '确定',
+      type: success > 0 ? 'success' : 'warning'
+    })
+    
+    // 清除选择并刷新列表
+    selectedTasks.value = []
+    loadTasks()
+    
+  } catch (error: any) {
+    console.error('AI批量评分错误:', error)
+    let errorMsg = 'AI批量评分失败'
+    
+    if (error.response?.data?.detail) {
+      errorMsg = error.response.data.detail
+    } else if (error.message) {
+      errorMsg = error.message
+    }
+    
+    ElMessage.error(errorMsg)
+  } finally {
+    batchScoreLoading.value = false
+  }
+}
+
+// 批量评分
+const batchScore = () => {
+  if (selectedTasks.value.length === 0) {
+    ElMessage.warning('请先选择要评分的任务')
+    return
+  }
+  batchScoreDialogVisible.value = true
+}
+
+// 执行批量评分
+const executeBatchScore = async () => {
+  if (selectedTasks.value.length === 0) {
+    ElMessage.warning('请先选择要评分的任务')
+    return
+  }
+
+  batchScoreLoading.value = true
+  try {
+    const submission_ids = selectedTasks.value.map((task: any) => task.task_id)
+    
+    const response = await axios.post(
+      'http://localhost:8001/api/scoring/batch-score',
+      {
+        submission_ids: submission_ids
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token') || sessionStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    )
+
+    ElMessage.success(`批量评分完成: 成功 ${response.data.success} 项，失败 ${response.data.failed} 项`)
+    batchScoreDialogVisible.value = false
+    selectedTasks.value = []
+    loadTasks()
+  } catch (error: any) {
+    console.error('批量评分错误:', error)
+    ElMessage.error(`批量评分失败: ${error.response?.data?.detail || error.message}`)
+  } finally {
+    batchScoreLoading.value = false
+  }
+}
+
+// 重置批量评分数据
+const resetBatchScoreData = () => {
+  batchScoreOptions.value = {
+    scoreType: 'manual',
+    defaultScore: 80,
+    overwrite: false
+  }
+}
+
+// 打开导出对话框
+const openExportDialog = () => {
+  exportDialogVisible.value = true
+  exportData.value = []
+  resetExportFilters()
+}
+
+// 重置导出筛选条件
+const resetExportFilters = () => {
+  exportFilters.value = {
+    fileType: '',
+    grade: '',
+    startDate: null,
+    endDate: null
+  }
+  exportData.value = []
+}
+
+// 重置导出数据
+const resetExportData = () => {
+  exportData.value = []
+  resetExportFilters()
+}
+
+// 加载导出数据
+const loadExportData = async () => {
+  exportLoading.value = true
+  try {
+    const params: any = {}
+    
+    if (exportFilters.value.fileType) {
+      params.file_type = exportFilters.value.fileType
+    }
+    if (exportFilters.value.grade) {
+      params.grade = exportFilters.value.grade
+    }
+    if (exportFilters.value.startDate) {
+      params.start_date = exportFilters.value.startDate.toISOString().split('T')[0]
+    }
+    if (exportFilters.value.endDate) {
+      params.end_date = exportFilters.value.endDate.toISOString().split('T')[0]
+    }
+    
+    const response = await axios.get('http://localhost:8001/api/scoring/export', {
+      params,
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || sessionStorage.getItem('access_token')}`
+      }
+    })
+    
+    exportData.value = response.data.data || []
+    ElMessage.success(`加载成功: ${exportData.value.length} 条数据`)
+  } catch (error: any) {
+    console.error('加载导出数据失败:', error)
+    ElMessage.error(`加载导出数据失败: ${error.response?.data?.detail || error.message}`)
+  } finally {
+    exportLoading.value = false
+  }
+}
+
+// 计算平均分
+const calculateAverageScore = () => {
+  if (exportData.value.length === 0) return 0
+  const sum = exportData.value.reduce((acc, item) => acc + (item.final_score || 0), 0)
+  return sum / exportData.value.length
+}
+
+// 计算最高分
+const calculateMaxScore = () => {
+  if (exportData.value.length === 0) return 0
+  return Math.max(...exportData.value.map(item => item.final_score || 0))
+}
+
+// 计算最低分
+const calculateMinScore = () => {
+  if (exportData.value.length === 0) return 0
+  return Math.min(...exportData.value.map(item => item.final_score || 0))
+}
+
+// 获取等级类型
+const getGradeType = (grade: string) => {
+  const typeMap: Record<string, string> = {
+    '优秀': 'success',
+    '良好': 'primary',
+    '合格': 'warning',
+    '不合格': 'danger'
+  }
+  return typeMap[grade] || 'info'
+}
+
+// 格式化日期
+const formatDate = (dateString: string) => {
+  if (!dateString) return '-'
+  const date = new Date(dateString)
+  return date.toLocaleString('zh-CN')
+}
+
+// 执行导出
+const executeExport = async () => {
+  if (exportData.value.length === 0) {
+    ElMessage.warning('没有数据可导出')
+    return
+  }
+  
+  exporting.value = true
+  try {
+    // 创建工作簿数据
+    const headers = [
+      '提交ID',
+      '文件名',
+      '文件类型',
+      '基础分',
+      '加分',
+      '最终得分',
+      '等级',
+      '评分类型',
+      '评分时间',
+      '已确认'
+    ]
+    
+    const rows = exportData.value.map(item => [
+      item.submission_id,
+      item.file_name,
+      item.file_type,
+      item.base_score,
+      item.bonus_score,
+      item.final_score,
+      item.grade,
+      item.scoring_type === 'auto' ? '自动' : '手动',
+      formatDate(item.scored_at),
+      item.is_confirmed ? '是' : '否'
+    ])
+    
+    // 创建CSV内容
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n')
+    
+    // 创建Blob并下载
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    
+    link.setAttribute('href', url)
+    link.setAttribute('download', `评分结果_${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    ElMessage.success('导出成功')
+    exportDialogVisible.value = false
+  } catch (error: any) {
+    console.error('导出失败:', error)
+    ElMessage.error(`导出失败: ${error.message}`)
+  } finally {
+    exporting.value = false
+  }
+}
+
 onMounted(async () => {
   // 等待认证准备就绪
   await waitForAuth();
@@ -699,6 +1417,8 @@ onMounted(async () => {
 .evaluation-task-list {
   width: 100%;
   padding: 0;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .page-title {
@@ -836,7 +1556,9 @@ onMounted(async () => {
 .feedback-display p {
   margin: 0;
   color: #424242;
-  line-height: 1.6;
+  line-height: 1.8;
+  white-space: pre-wrap; /* 保留换行符和空格 */
+  word-wrap: break-word; /* 自动换行 */
 }
 
 .files-dialog {
@@ -1177,6 +1899,19 @@ onMounted(async () => {
   margin-top: 0.5rem;
 }
 
+.criterion-reason {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background-color: #ffffff;
+  border-radius: 4px;
+  border-left: 3px solid #409eff;
+}
+
+.criterion-reason .el-text {
+  line-height: 1.6;
+  display: block;
+}
+
 .feedback-section {
   margin-bottom: 2rem;
 }
@@ -1201,8 +1936,53 @@ onMounted(async () => {
 .feedback-content p {
   margin: 0;
   color: #424242;
-  line-height: 1.6;
+  line-height: 1.8;
   font-size: 0.95rem;
+  white-space: pre-wrap; /* 保留换行符和空格 */
+  word-wrap: break-word; /* 自动换行 */
+}
+
+/* 结构化反馈样式 */
+.structured-feedback .formatted-feedback {
+  line-height: 1.8;
+}
+
+.structured-feedback .feedback-title {
+  margin: 1.5rem 0 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+}
+
+.structured-feedback .feedback-title:first-child {
+  margin-top: 0;
+}
+
+.structured-feedback .feedback-list {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+  list-style: none;
+}
+
+.structured-feedback .feedback-item {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+  position: relative;
+  color: #424242;
+  line-height: 1.8;
+}
+
+.structured-feedback .feedback-item::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: #409eff;
+  font-weight: bold;
+  font-size: 1.2em;
 }
 
 .score-meta {
@@ -1217,5 +1997,151 @@ onMounted(async () => {
 
 .status-summary .el-tag {
   font-size: 0.85rem;
+}
+
+/* 批量操作样式 */
+.batch-operations {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: #f6f8fb;
+  border-radius: 4px;
+  border-left: 4px solid #409eff;
+}
+
+.batch-score-dialog {
+  padding: 0;
+}
+
+.batch-alert {
+  margin-bottom: 1.5rem;
+}
+
+.batch-tasks-list {
+  margin-bottom: 1.5rem;
+}
+
+.batch-tasks-list h4 {
+  margin-bottom: 1rem;
+  color: #212121;
+  font-weight: 600;
+}
+
+.batch-options {
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.batch-options .form-hint {
+  margin-left: 0.5rem;
+  color: #757575;
+  font-size: 0.85rem;
+}
+
+/* AI自动评分按钮样式 */
+.action-buttons .el-button[type="primary"] {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  color: white;
+  font-weight: 500;
+}
+
+.action-buttons .el-button[type="primary"]:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.batch-operations .el-button[type="primary"] {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  color: white;
+  font-weight: 500;
+  padding: 10px 20px;
+}
+
+.batch-operations .el-button[type="primary"]:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+/* 加载状态样式 */
+.el-button.is-loading {
+  pointer-events: none;
+}
+
+.el-button.is-loading .el-icon {
+  animation: rotating 2s linear infinite;
+}
+
+@keyframes rotating {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+.export-dialog {
+  padding: 0;
+}
+
+.export-alert {
+  margin-bottom: 1.5rem;
+}
+
+.export-filters {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.export-filters h4 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #212121;
+  font-weight: 600;
+}
+
+.export-preview {
+  margin-bottom: 1.5rem;
+}
+
+.export-preview h4 {
+  margin-bottom: 1rem;
+  color: #212121;
+  font-weight: 600;
+}
+
+.export-stats {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #f0f0f0;
+}
+
+.stat-item {
+  padding: 1rem;
+  background-color: #f6f8fb;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.stat-label {
+  display: block;
+  font-size: 0.9rem;
+  color: #757575;
+  margin-bottom: 0.5rem;
+}
+
+.stat-value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #1976d2;
 }
 </style>

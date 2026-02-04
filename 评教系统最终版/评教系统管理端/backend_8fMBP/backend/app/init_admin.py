@@ -5,10 +5,12 @@
 
 import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from sqlalchemy.orm import Session
-from database import get_db, engine
-from models import User
-from auth import get_password_hash
+from app.database import get_db, engine
+from app.models import User
+from app.auth import get_password_hash
 
 def create_admin_user():
     """创建默认管理员账户"""

@@ -10,26 +10,32 @@ import json
 import os
 import shutil
 import uuid
+import logging
 from datetime import datetime, timedelta
-from services import sync_distribution_to_teacher, sync_review_status_to_teacher
 
-from database import get_db, engine, Base
-from models import (
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+from .database import get_db, engine, Base
+from .models import (
     SystemConfig, EvaluationTask, EvaluationData, AnalysisReport, User,
     EvaluationForm, DistributionRecord, MaterialSubmission,
     Teacher, Course, Department, EvaluationTemplate, EvaluationAssignmentTask
 )
-from schemas import (
+from .schemas import (
     UserRegister, UserLogin, LoginResponse, RegisterResponse, 
     MessageResponse, UserResponse, Token,
     EvaluationFormCreate, EvaluationFormResponse,
     MaterialDistributeRequest, DistributionRecordResponse,
     MaterialSubmissionResponse, ReviewStatusUpdate
 )
-from auth import (
+from .auth import (
     get_password_hash, verify_password, create_access_token,
     get_current_user, get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
+from .routes.scoring import router as scoring_router
+from .services import sync_distribution_to_teacher, sync_review_status_to_teacher
 
 # 创建所有数据表
 Base.metadata.create_all(bind=engine)
@@ -50,6 +56,9 @@ app.add_middleware(
 
 # 配置静态文件服务
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# 包含评分系统路由
+app.include_router(scoring_router)
 
 # 暂时禁用Redis，使用内存存储
 redis_client = None
@@ -153,19 +162,28 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     - 验证密码
     - 返回 JWT 令牌
     """
+    logger.info(f"登录尝试 - 用户名: {credentials.username}")
+    
     # 查找用户（支持用户名或邮箱登录）
     user = db.query(User).filter(
         (User.username == credentials.username) | (User.email == credentials.username)
     ).first()
     
     if not user:
+        logger.warning(f"用户不存在: {credentials.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误"
         )
     
+    logger.info(f"找到用户: {user.username}, 角色: {user.role}")
+    
     # 验证密码
-    if not verify_password(credentials.password, user.hashed_password):
+    password_valid = verify_password(credentials.password, user.hashed_password)
+    logger.info(f"密码验证结果: {password_valid}")
+    
+    if not password_valid:
+        logger.warning(f"密码错误 - 用户: {credentials.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误"
@@ -1759,6 +1777,7 @@ async def get_archived_scores(
     semester: Optional[str] = Query(None, description="学期筛选"),
     template_name: Optional[str] = Query(None, description="考评表名称筛选"),
     teacher_id: Optional[str] = Query(None, description="教师ID筛选"),
+    sortOrder: Optional[str] = Query("desc", description="排序方式: desc(最新在前) 或 asc(最早在前)"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     db: Session = Depends(get_db),
@@ -1789,9 +1808,21 @@ async def get_archived_scores(
             if template_ids:
                 query = query.filter(EvaluationAssignmentTask.template_id.in_(template_ids))
         
-        # 分页
+        # 分页 - 按归档时间（评分时间）排序，支持升序和降序
         total = query.count()
-        tasks = query.order_by(EvaluationAssignmentTask.scored_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+        
+        # 根据sortOrder参数决定排序方式
+        if sortOrder == "asc":
+            # 升序：最早的在前
+            order_clause = EvaluationAssignmentTask.scored_at.asc().nullslast()
+        else:
+            # 降序：最新的在前（默认）
+            order_clause = EvaluationAssignmentTask.scored_at.desc().nullslast()
+        
+        tasks = query.order_by(
+            order_clause,
+            EvaluationAssignmentTask.task_id.desc()  # 如果scored_at相同，按task_id降序
+        ).offset((page - 1) * page_size).limit(page_size).all()
         
         # 构建返回数据
         scores_data = []
@@ -1887,7 +1918,7 @@ async def get_archived_score_detail(
             "scores": task.scores,
             "scoring_criteria": template.scoring_criteria if template else [],
             "feedback": task.scoring_feedback,
-            "semester": task.semester or "2025-2026-1",
+            "semester": "2025-2026-1",  # 默认学期，因为模型中没有semester字段
             "scored_at": task.scored_at.isoformat() if task.scored_at else None,
             "archived_at": task.scored_at.isoformat() if task.scored_at else None
         }
@@ -1957,9 +1988,23 @@ async def delete_archived_score(
                 detail="归档记录不存在"
             )
         
-        # 注意：这里只是示例，实际可能需要软删除或移动到历史表
-        # db.delete(task)
-        # db.commit()
+        # 删除任务（实际生产环境可能需要软删除）
+        db.delete(task)
+        db.commit()
+        
+        return {
+            "message": "删除成功",
+            "archive_id": archive_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"删除失败: {str(e)}"
+        )
         
         return {
             "message": "删除成功"
@@ -1976,3 +2021,17 @@ async def delete_archived_score(
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="localhost", port=8001, reload=True)
+
+
+# ==================== 健康检查 ====================
+
+@app.get("/health")
+async def health_check():
+    """健康检查端点"""
+    return {"status": "healthy", "service": "admin-backend"}
+
+
+@app.get("/api/health")
+async def api_health_check():
+    """API健康检查端点"""
+    return {"status": "healthy", "service": "admin-backend"}

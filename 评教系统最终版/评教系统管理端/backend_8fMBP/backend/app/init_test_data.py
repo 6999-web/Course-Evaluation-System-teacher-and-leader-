@@ -1,8 +1,8 @@
 """
 初始化测试数据
 """
-from database import SessionLocal, engine, Base
-from models import Teacher, Department
+from .database import SessionLocal, engine, Base
+from .models import Teacher, Department
 
 # 创建所有表
 Base.metadata.create_all(bind=engine)

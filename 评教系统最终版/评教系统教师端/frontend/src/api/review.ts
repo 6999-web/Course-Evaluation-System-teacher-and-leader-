@@ -81,3 +81,13 @@ export function getReviewStats(): Promise<any> {
     method: 'get'
   })
 }
+
+/**
+ * 确认评分结果
+ */
+export function confirmScore(scoringRecordId: number): Promise<any> {
+  return request({
+    url: `/api/scoring/confirm/${scoringRecordId}`,
+    method: 'post'
+  })
+}

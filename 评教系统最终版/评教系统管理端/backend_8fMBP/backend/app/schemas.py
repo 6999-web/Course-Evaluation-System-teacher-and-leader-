@@ -51,6 +51,7 @@ class UserLogin(BaseModel):
     """用户登录请求模型"""
     username: str = Field(..., description="用户名或邮箱")
     password: str = Field(..., description="密码")
+    captcha: Optional[str] = Field(None, description="验证码（前端验证，后端可选）")
 
 
 class Token(BaseModel):

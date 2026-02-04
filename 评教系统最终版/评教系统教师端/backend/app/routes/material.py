@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from typing import List
 import os
 import uuid
+import json
+import httpx
 from datetime import datetime
 
 from app.database import get_db
@@ -39,6 +41,18 @@ async def sync_distributed_material(
         import uuid
         material_id = sync_data.get("material_id") or f"mat_{uuid.uuid4().hex[:8]}"
         
+        # 处理distributed_at字段
+        distributed_at = sync_data.get("distributed_at")
+        if distributed_at:
+            if isinstance(distributed_at, str):
+                distributed_at = datetime.fromisoformat(distributed_at)
+            elif isinstance(distributed_at, datetime):
+                pass  # 已经是datetime对象
+            else:
+                distributed_at = datetime.utcnow()
+        else:
+            distributed_at = datetime.utcnow()
+        
         # 创建分发记录
         material = DistributedMaterial(
             material_id=material_id,
@@ -47,7 +61,7 @@ async def sync_distributed_material(
             file_url=sync_data.get("file_url", ""),
             teacher_id=sync_data.get("teacher_id"),
             distributed_by=sync_data.get("distributed_by"),
-            distributed_at=datetime.fromisoformat(sync_data.get("distributed_at"))
+            distributed_at=distributed_at
         )
         
         db.add(material)
@@ -333,4 +347,111 @@ async def get_submissions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取提交记录失败: {str(e)}"
+        )
+
+
+@router.get("/submissions/{submission_id}/scoring", response_model=dict)
+async def get_submission_scoring_results(
+    submission_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    获取提交记录的评分结果
+    
+    - 查询该提交对应的所有评分记录
+    - 返回评分明细（得分、等级、扣分理由）
+    - Requirements: 7.6, 8.1
+    """
+    try:
+        # 验证提交记录属于当前教师
+        submission = db.query(TeacherSubmission).filter(
+            TeacherSubmission.submission_id == submission_id,
+            TeacherSubmission.teacher_id == CURRENT_TEACHER_ID
+        ).first()
+        
+        if not submission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="提交记录不存在或无权访问"
+            )
+        
+        # 调用管理端API获取评分记录
+        import httpx
+        import json
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"http://localhost:8001/api/scoring/records/{submission_id}",
+                    timeout=10.0
+                )
+                
+                if response.status_code == 404:
+                    # 还没有评分记录
+                    return {
+                        "submission_id": submission_id,
+                        "scoring_records": [],
+                        "has_scoring": False,
+                        "message": "暂无评分结果"
+                    }
+                
+                if response.status_code != 200:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="获取评分结果失败"
+                    )
+                
+                data = response.json()
+                records = data.get("records", [])
+                
+                # 格式化评分记录
+                formatted_records = []
+                for record in records:
+                    score_details = record.get("score_details", {})
+                    if isinstance(score_details, str):
+                        try:
+                            score_details = json.loads(score_details)
+                        except:
+                            score_details = {}
+                    
+                    formatted_records.append({
+                        "id": record.get("id"),
+                        "file_name": record.get("file_name"),
+                        "file_type": record.get("file_type"),
+                        "final_score": record.get("final_score"),
+                        "grade": record.get("grade"),
+                        "base_score": record.get("base_score", 0),
+                        "bonus_score": record.get("bonus_score", 0),
+                        "score_details": score_details,
+                        "is_confirmed": record.get("is_confirmed", False),
+                        "scoring_type": record.get("scoring_type", "auto"),
+                        "scored_at": record.get("scored_at"),
+                        "veto_triggered": record.get("veto_triggered", False),
+                        "veto_reason": record.get("veto_reason")
+                    })
+                
+                return {
+                    "submission_id": submission_id,
+                    "scoring_records": formatted_records,
+                    "has_scoring": len(formatted_records) > 0,
+                    "total_records": len(formatted_records)
+                }
+        
+        except httpx.RequestError as e:
+            # 管理端API不可用
+            return {
+                "submission_id": submission_id,
+                "scoring_records": [],
+                "has_scoring": False,
+                "message": "评分服务暂不可用"
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取评分结果失败: {str(e)}"
         )

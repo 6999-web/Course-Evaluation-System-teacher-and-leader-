@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Enum, Text, JSON
-from database import Base
+from app.database import Base
 import enum
 import uuid
 from datetime import datetime
@@ -137,6 +137,13 @@ class MaterialSubmission(Base):
     review_feedback = Column(Text)
     reviewed_by = Column(Integer, nullable=True)  # ForeignKey("users.id")
     reviewed_at = Column(DateTime, nullable=True)
+    
+    # 自动评分系统扩展字段
+    scoring_status = Column(String(20), default="pending")  # pending, scoring, scored, failed
+    parsed_content = Column(Text)  # 解析后的文本内容
+    file_hash = Column(String(64))  # 文件哈希值
+    encrypted_path = Column(String(500))  # 加密后的文件路径
+    scoring_result = Column(JSON)  # 评分结果 {"base_score": 85, "bonus_score": 5, "final_score": 90, "grade": "优秀", ...}
 
 
 # ==================== 考评表相关模型 ====================
@@ -203,6 +210,166 @@ class EvaluationAssignmentTask(Base):
     # 修改记录
     score_history = Column(JSON)  # [{"old_score": 20, "new_score": 25, "reason": "...", "changed_at": "...", "changed_by": "..."}, ...]
     
+    # 自动评分系统扩展字段
+    required_file_types = Column(JSON)  # JSON格式的必需文件类型列表 ["教案", "教学反思", ...]
+    bonus_enabled = Column(Boolean, default=True)  # 是否启用加分项
+    max_bonus_score = Column(Float, default=10)  # 最大加分值
+    auto_scoring_enabled = Column(Boolean, default=True)  # 是否启用自动评分
+    
     deadline = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+
+# ==================== 自动评分系统相关模型 ====================
+
+class ScoringTemplate(Base):
+    """评分模板表 - 管理5类文件的提示词模板"""
+    __tablename__ = "scoring_templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_type = Column(String(50), nullable=False, unique=True, index=True)  # 文件类型：教案、教学反思、教研/听课记录、成绩/学情分析、课件
+    template_content = Column(Text, nullable=False)  # JSON格式的模板内容
+    is_active = Column(Boolean, default=True)  # 是否启用
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(Integer, nullable=True)  # ForeignKey("users.id")
+
+
+class ScoringRecord(Base):
+    """评分记录表 - 存储每次评分的详细结果"""
+    __tablename__ = "scoring_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    submission_id = Column(String, nullable=False, index=True)  # 关联 material_submissions.submission_id
+    file_id = Column(String, nullable=False)  # 具体文件ID
+    file_type = Column(String(50), nullable=False)  # 文件类型
+    file_name = Column(String(200), nullable=False)  # 文件名
+    
+    # 评分结果
+    base_score = Column(Float, nullable=False)  # 基础分
+    bonus_score = Column(Float, default=0)  # 加分
+    final_score = Column(Float, nullable=False)  # 最终得分
+    grade = Column(String(20), nullable=False)  # 等级：优秀、良好、合格、不合格
+    
+    # 评分详情
+    score_details = Column(Text)  # JSON格式的得分明细
+    veto_triggered = Column(Boolean, default=False)  # 是否触发否决项
+    veto_reason = Column(Text)  # 否决原因
+    
+    # 评分元信息
+    scoring_type = Column(String(20), default="auto")  # auto/manual
+    scored_by = Column(Integer, nullable=True)  # ForeignKey("users.id") - 评分人（自动评分时为系统）
+    scored_at = Column(DateTime, default=datetime.utcnow)
+    
+    # 确认状态
+    is_confirmed = Column(Boolean, default=False)  # 教师是否确认
+    confirmed_at = Column(DateTime, nullable=True)  # 确认时间
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ScoringAppeal(Base):
+    """评分异议表 - 处理教师对评分结果的异议"""
+    __tablename__ = "scoring_appeals"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scoring_record_id = Column(Integer, nullable=False, index=True)  # ForeignKey("scoring_records.id")
+    teacher_id = Column(String, nullable=False, index=True)  # 教师ID
+    teacher_name = Column(String(100), nullable=False)  # 教师姓名
+    
+    # 异议内容
+    appeal_reason = Column(Text, nullable=False)  # 异议理由
+    status = Column(String(20), default="pending")  # pending/reviewing/resolved
+    
+    # 复核信息
+    reviewed_by = Column(Integer, nullable=True)  # ForeignKey("users.id") - 复核人
+    review_result = Column(Text)  # 复核结果
+    reviewed_at = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ReviewRecord(Base):
+    """复核记录表 - 记录人工复核的详细信息"""
+    __tablename__ = "review_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scoring_record_id = Column(Integer, nullable=False, index=True)  # ForeignKey("scoring_records.id")
+    review_type = Column(String(20), nullable=False)  # random/appeal - 随机抽查/异议复核
+    
+    # 复核对比
+    original_score = Column(Float, nullable=False)  # 原始得分
+    reviewed_score = Column(Float, nullable=False)  # 复核后得分
+    is_consistent = Column(Boolean, nullable=False)  # 是否一致
+    difference_reason = Column(Text)  # 差异原因
+    
+    # 复核人信息
+    reviewed_by = Column(Integer, nullable=False)  # ForeignKey("users.id")
+    reviewed_at = Column(DateTime, default=datetime.utcnow)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BonusItem(Base):
+    """加分项表 - 管理教师的加分项"""
+    __tablename__ = "bonus_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    submission_id = Column(String, nullable=False, index=True)  # 关联 material_submissions.submission_id
+    teacher_id = Column(String, nullable=False, index=True)  # 教师ID
+    
+    # 加分项信息
+    item_name = Column(String(100), nullable=False)  # 加分项名称：获奖、论文、创新等
+    score = Column(Float, nullable=False)  # 加分值
+    evidence = Column(Text)  # 佐证材料描述
+    evidence_files = Column(JSON)  # 佐证文件列表
+    
+    # 审核状态
+    status = Column(String(20), default="pending")  # pending/approved/rejected
+    
+    # 添加人信息
+    added_by = Column(Integer, nullable=False)  # ForeignKey("users.id")
+    added_at = Column(DateTime, default=datetime.utcnow)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ScoringLog(Base):
+    """评分日志表 - 记录所有评分相关操作"""
+    __tablename__ = "scoring_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scoring_record_id = Column(Integer, nullable=True, index=True)  # ForeignKey("scoring_records.id")
+    
+    # 操作信息
+    action = Column(String(50), nullable=False)  # create/update/appeal/review/confirm/publish
+    action_by = Column(Integer, nullable=True)  # ForeignKey("users.id")
+    action_details = Column(Text)  # JSON格式的详细信息
+    
+    # 关联信息
+    related_id = Column(String)  # 关联的其他记录ID（如异议ID、复核ID等）
+    related_type = Column(String(50))  # 关联类型
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SystemScoringConfig(Base):
+    """系统评分配置表 - 管理系统级别的评分配置"""
+    __tablename__ = "system_scoring_config"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    config_key = Column(String(100), nullable=False, unique=True, index=True)  # 配置键
+    config_value = Column(Text, nullable=False)  # 配置值（JSON格式）
+    description = Column(Text)  # 配置描述
+    
+    # 试运行模式配置
+    is_trial_mode = Column(Boolean, default=True)  # 是否为试运行模式
+    
+    updated_by = Column(Integer, nullable=True)  # ForeignKey("users.id")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)

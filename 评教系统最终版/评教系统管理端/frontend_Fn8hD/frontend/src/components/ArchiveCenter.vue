@@ -25,7 +25,7 @@
             <!-- 筛选条件 -->
             <el-form :model="scoreFilters" label-width="100px" style="margin-bottom: 20px;">
               <el-row :gutter="20">
-                <el-col :span="6">
+                <el-col :span="5">
                   <el-form-item label="学期">
                     <el-select v-model="scoreFilters.semester" placeholder="选择学期" clearable>
                       <el-option label="2025-2026-1" value="2025-2026-1" />
@@ -34,17 +34,25 @@
                     </el-select>
                   </el-form-item>
                 </el-col>
-                <el-col :span="6">
+                <el-col :span="5">
                   <el-form-item label="考评表">
                     <el-input v-model="scoreFilters.template_name" placeholder="考评表名称" clearable />
                   </el-form-item>
                 </el-col>
-                <el-col :span="6">
+                <el-col :span="4">
                   <el-form-item label="教师">
                     <el-input v-model="scoreFilters.teacher_id" placeholder="教师ID" clearable />
                   </el-form-item>
                 </el-col>
-                <el-col :span="6">
+                <el-col :span="5">
+                  <el-form-item label="排序">
+                    <el-select v-model="scoreFilters.sortOrder" placeholder="选择排序">
+                      <el-option label="最新在前" value="desc" />
+                      <el-option label="最早在前" value="asc" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="5">
                   <el-button type="primary" @click="loadArchivedScores">
                     <el-icon><search /></el-icon>
                     查询
@@ -71,7 +79,33 @@
             </el-row>
             
             <!-- 归档列表 -->
-            <el-table :data="archivedScores" stripe style="width: 100%" :loading="loading">
+            <div class="table-toolbar" style="margin-bottom: 15px;">
+              <el-button 
+                type="success" 
+                :disabled="selectedScores.length === 0"
+                @click="batchExportScores"
+              >
+                <el-icon><download /></el-icon>
+                批量导出 ({{ selectedScores.length }})
+              </el-button>
+              <el-button 
+                type="danger" 
+                :disabled="selectedScores.length === 0"
+                @click="batchDeleteScores"
+              >
+                <el-icon><delete /></el-icon>
+                批量删除 ({{ selectedScores.length }})
+              </el-button>
+            </div>
+            
+            <el-table 
+              :data="archivedScores" 
+              stripe 
+              style="width: 100%" 
+              :loading="loading"
+              @selection-change="handleSelectionChange"
+            >
+              <el-table-column type="selection" width="55" />
               <el-table-column type="index" width="50" label="#" />
               <el-table-column prop="archive_id" label="归档ID" width="180" />
               <el-table-column prop="teacher_id" label="教师ID" width="120" />
@@ -394,59 +428,164 @@
     </el-card>
     
     <!-- 评分详情对话框 -->
-    <el-dialog v-model="scoreDetailVisible" title="评分详情" width="800px">
+    <el-dialog v-model="scoreDetailVisible" title="评分详情" width="900px" :close-on-click-modal="false">
       <div v-if="currentScore" class="score-detail">
-        <el-descriptions :column="2" border>
-          <el-descriptions-item label="归档ID">{{ currentScore.archive_id }}</el-descriptions-item>
-          <el-descriptions-item label="任务ID">{{ currentScore.task_id }}</el-descriptions-item>
-          <el-descriptions-item label="教师ID">{{ currentScore.teacher_id }}</el-descriptions-item>
-          <el-descriptions-item label="教师姓名">{{ currentScore.teacher_name }}</el-descriptions-item>
-          <el-descriptions-item label="考评表">{{ currentScore.template_name }}</el-descriptions-item>
-          <el-descriptions-item label="学期">{{ currentScore.semester }}</el-descriptions-item>
-          <el-descriptions-item label="总分">
-            <el-tag type="success" size="large">{{ currentScore.score }} / {{ currentScore.total_score }}</el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="得分率">
-            <el-tag :type="getScoreTagType(currentScore.score, currentScore.total_score)" size="large">
-              {{ Math.round((currentScore.score / currentScore.total_score) * 100) }}%
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="评分时间">{{ currentScore.scored_at }}</el-descriptions-item>
-          <el-descriptions-item label="归档时间">{{ currentScore.archived_at }}</el-descriptions-item>
-        </el-descriptions>
+        <!-- 基本信息 -->
+        <el-card class="detail-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <el-icon><document /></el-icon>
+              <span>基本信息</span>
+            </div>
+          </template>
+          <el-descriptions :column="2" border size="default">
+            <el-descriptions-item label="归档ID" label-class-name="detail-label">
+              <el-tag>{{ currentScore.archive_id }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="任务ID" label-class-name="detail-label">
+              <el-tag>{{ currentScore.task_id }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="教师ID" label-class-name="detail-label">
+              {{ currentScore.teacher_id }}
+            </el-descriptions-item>
+            <el-descriptions-item label="教师姓名" label-class-name="detail-label">
+              <strong>{{ currentScore.teacher_name }}</strong>
+            </el-descriptions-item>
+            <el-descriptions-item label="考评表" label-class-name="detail-label" :span="2">
+              {{ currentScore.template_name }}
+            </el-descriptions-item>
+            <el-descriptions-item label="学期" label-class-name="detail-label">
+              {{ currentScore.semester }}
+            </el-descriptions-item>
+            <el-descriptions-item label="评分时间" label-class-name="detail-label">
+              {{ currentScore.scored_at }}
+            </el-descriptions-item>
+            <el-descriptions-item label="归档时间" label-class-name="detail-label" :span="2">
+              {{ currentScore.archived_at }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
         
-        <div v-if="currentScore.scores" class="score-items" style="margin-top: 20px;">
-          <h4>各项得分</h4>
-          <el-table :data="formatScoreItems(currentScore.scores)" stripe>
-            <el-table-column prop="name" label="评分项" />
-            <el-table-column prop="score" label="得分" width="100">
+        <!-- 得分情况 -->
+        <el-card class="detail-card" shadow="never" style="margin-top: 20px;">
+          <template #header>
+            <div class="card-header">
+              <el-icon><trophy /></el-icon>
+              <span>得分情况</span>
+            </div>
+          </template>
+          <el-row :gutter="20" class="score-summary-row">
+            <el-col :span="8">
+              <el-statistic title="总分" :value="currentScore.score" :precision="1">
+                <template #suffix>
+                  / {{ currentScore.total_score }}
+                </template>
+              </el-statistic>
+            </el-col>
+            <el-col :span="8">
+              <el-statistic title="得分率" :value="Math.round((currentScore.score / currentScore.total_score) * 100)" :precision="0">
+                <template #suffix>%</template>
+              </el-statistic>
+            </el-col>
+            <el-col :span="8">
+              <div class="grade-display">
+                <div class="grade-label">等级</div>
+                <el-tag 
+                  :type="getScoreTagType(currentScore.score, currentScore.total_score)" 
+                  size="large"
+                  effect="dark"
+                  class="grade-tag"
+                >
+                  {{ getGradeText(currentScore.score, currentScore.total_score) }}
+                </el-tag>
+              </div>
+            </el-col>
+          </el-row>
+          
+          <el-progress 
+            :percentage="Math.round((currentScore.score / currentScore.total_score) * 100)" 
+            :stroke-width="20"
+            :color="getProgressColor(Math.round((currentScore.score / currentScore.total_score) * 100))"
+            style="margin-top: 20px;"
+          />
+        </el-card>
+        
+        <!-- 各项得分 -->
+        <el-card v-if="currentScore.scores" class="detail-card" shadow="never" style="margin-top: 20px;">
+          <template #header>
+            <div class="card-header">
+              <el-icon><list /></el-icon>
+              <span>各项得分明细</span>
+            </div>
+          </template>
+          <el-table :data="formatScoreItems(currentScore.scores)" stripe border>
+            <el-table-column type="index" label="#" width="60" align="center" />
+            <el-table-column prop="name" label="评分项" min-width="150">
               <template #default="{ row }">
-                <el-tag>{{ row.score }}</el-tag>
+                <strong>{{ row.name }}</strong>
               </template>
             </el-table-column>
-            <el-table-column prop="max_score" label="满分" width="100">
+            <el-table-column prop="score" label="得分" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag type="success" size="large">{{ row.score }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="max_score" label="满分" width="100" align="center">
               <template #default="{ row }">
                 {{ row.max_score }}
               </template>
             </el-table-column>
-            <el-table-column prop="percentage" label="得分率" width="150">
+            <el-table-column prop="percentage" label="得分率" width="200">
               <template #default="{ row }">
                 <el-progress 
                   :percentage="Math.round((row.score / row.max_score) * 100)" 
-                  :stroke-width="8"
-                />
+                  :stroke-width="12"
+                  :color="getProgressColor(Math.round((row.score / row.max_score) * 100))"
+                >
+                  <template #default="{ percentage }">
+                    <span style="font-size: 12px; font-weight: bold;">{{ percentage }}%</span>
+                  </template>
+                </el-progress>
+              </template>
+            </el-table-column>
+            <el-table-column prop="reason" label="评分说明" min-width="250" v-if="currentScore.scores && currentScore.scores.score_details">
+              <template #default="{ row }">
+                <div v-if="row.reason" class="criterion-reason">
+                  <el-text type="info" size="small">{{ row.reason }}</el-text>
+                </div>
+                <span v-else>-</span>
               </template>
             </el-table-column>
           </el-table>
-        </div>
+        </el-card>
         
-        <div v-if="currentScore.feedback" class="feedback-section" style="margin-top: 20px;">
-          <h4>评分反馈</h4>
-          <el-card>
-            <p>{{ currentScore.feedback }}</p>
-          </el-card>
-        </div>
+        <!-- 评分反馈 -->
+        <el-card v-if="currentScore.feedback" class="detail-card" shadow="never" style="margin-top: 20px;">
+          <template #header>
+            <div class="card-header">
+              <el-icon><chat-line-round /></el-icon>
+              <span>评分反馈</span>
+            </div>
+          </template>
+          <div class="feedback-content structured-feedback">
+            <div v-html="formatFeedback(currentScore.feedback)"></div>
+          </div>
+        </el-card>
       </div>
+      
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="scoreDetailVisible = false">关闭</el-button>
+          <el-button type="primary" @click="exportScore(currentScore)">
+            <el-icon><download /></el-icon>
+            导出详情
+          </el-button>
+          <el-button type="success" @click="printScoreDetail">
+            <el-icon><printer /></el-icon>
+            打印
+          </el-button>
+        </div>
+      </template>
     </el-dialog>
     </div>
   </div>
@@ -455,7 +594,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { FolderAdd, Search, View, Download, Delete } from '@element-plus/icons-vue';
+import { FolderAdd, Search, View, Download, Delete, Document, Trophy, List, ChatLineRound, Printer } from '@element-plus/icons-vue';
 import axios from 'axios';
 import { waitForAuth } from '../utils/authState';
 
@@ -465,7 +604,8 @@ const activeTab = ref('scores'); // 默认显示评分归档
 const scoreFilters = ref({
   semester: '',
   template_name: '',
-  teacher_id: ''
+  teacher_id: '',
+  sortOrder: 'desc'  // 默认最新在前
 });
 
 const archivedScores = ref([]);
@@ -473,6 +613,7 @@ const loading = ref(false);
 const archiving = ref(false);
 const scoreDetailVisible = ref(false);
 const currentScore = ref<any>(null);
+const selectedScores = ref<any[]>([]); // 选中的评分记录
 
 const scorePagination = ref({
   page: 1,
@@ -557,7 +698,8 @@ const resetScoreFilters = () => {
   scoreFilters.value = {
     semester: '',
     template_name: '',
-    teacher_id: ''
+    teacher_id: '',
+    sortOrder: 'desc'  // 默认最新在前
   };
   scorePagination.value.page = 1;
   loadArchivedScores();
@@ -581,9 +723,68 @@ const viewScoreDetail = async (row: any) => {
 };
 
 // 导出评分
-const exportScore = (row: any) => {
-  ElMessage.info('导出功能开发中...');
-  // TODO: 实现导出功能
+const exportScore = async (row: any) => {
+  try {
+    // 获取完整的评分详情
+    const response = await axios.get(`http://localhost:8001/api/archived-scores/${row.archive_id}`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || sessionStorage.getItem('access_token')}`
+      }
+    });
+    
+    const scoreData = response.data;
+    
+    // 创建Excel数据
+    const excelData = {
+      title: `评分详情_${scoreData.teacher_name}_${scoreData.template_name}`,
+      headers: ['项目', '内容'],
+      data: [
+        ['归档ID', scoreData.archive_id],
+        ['任务ID', scoreData.task_id],
+        ['教师ID', scoreData.teacher_id],
+        ['教师姓名', scoreData.teacher_name],
+        ['考评表', scoreData.template_name],
+        ['学期', scoreData.semester],
+        ['总分', `${scoreData.score} / ${scoreData.total_score}`],
+        ['得分率', `${Math.round((scoreData.score / scoreData.total_score) * 100)}%`],
+        ['评分时间', scoreData.scored_at],
+        ['归档时间', scoreData.archived_at]
+      ]
+    };
+    
+    // 添加各项得分
+    if (scoreData.scores && typeof scoreData.scores === 'object') {
+      excelData.data.push(['', '']); // 空行
+      excelData.data.push(['评分项', '得分']);
+      Object.entries(scoreData.scores).forEach(([name, score]) => {
+        excelData.data.push([name, score]);
+      });
+    }
+    
+    // 添加反馈
+    if (scoreData.feedback) {
+      excelData.data.push(['', '']); // 空行
+      excelData.data.push(['评分反馈', '']);
+      excelData.data.push(['', scoreData.feedback]);
+    }
+    
+    // 转换为CSV格式并下载
+    const csvContent = excelData.data.map(row => row.join(',')).join('\n');
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${excelData.title}_${new Date().getTime()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    ElMessage.success('导出成功');
+  } catch (error: any) {
+    console.error('导出失败:', error);
+    ElMessage.error(`导出失败: ${error.response?.data?.detail || error.message}`);
+  }
 };
 
 // 删除归档评分
@@ -615,6 +816,126 @@ const deleteArchivedScore = async (row: any) => {
   }
 };
 
+// 处理选择变化
+const handleSelectionChange = (selection: any[]) => {
+  selectedScores.value = selection;
+};
+
+// 批量导出评分
+const batchExportScores = async () => {
+  if (selectedScores.value.length === 0) {
+    ElMessage.warning('请先选择要导出的记录');
+    return;
+  }
+  
+  try {
+    ElMessage.info(`正在导出 ${selectedScores.value.length} 条记录...`);
+    
+    // 创建CSV内容
+    let csvContent = '\ufeff'; // UTF-8 BOM
+    csvContent += '归档ID,任务ID,教师ID,教师姓名,考评表,学期,总分,满分,得分率,评分时间,归档时间\n';
+    
+    selectedScores.value.forEach(score => {
+      const percentage = Math.round((score.score / score.total_score) * 100);
+      csvContent += `${score.archive_id},${score.task_id},${score.teacher_id},${score.teacher_name},${score.template_name},${score.semester},${score.score},${score.total_score},${percentage}%,${score.scored_at},${score.archived_at}\n`;
+    });
+    
+    // 下载CSV文件
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `评分归档_批量导出_${new Date().getTime()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    ElMessage.success(`成功导出 ${selectedScores.value.length} 条记录`);
+  } catch (error: any) {
+    console.error('批量导出失败:', error);
+    ElMessage.error(`批量导出失败: ${error.message}`);
+  }
+};
+
+// 批量删除评分
+const batchDeleteScores = async () => {
+  if (selectedScores.value.length === 0) {
+    ElMessage.warning('请先选择要删除的记录');
+    return;
+  }
+  
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${selectedScores.value.length} 条记录吗？此操作不可恢复！`,
+      '确认批量删除',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    );
+    
+    // 逐个删除
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const score of selectedScores.value) {
+      try {
+        await axios.delete(`http://localhost:8001/api/archived-scores/${score.archive_id}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token') || sessionStorage.getItem('access_token')}`
+          }
+        });
+        successCount++;
+      } catch (error) {
+        failCount++;
+        console.error(`删除 ${score.archive_id} 失败:`, error);
+      }
+    }
+    
+    if (successCount > 0) {
+      ElMessage.success(`成功删除 ${successCount} 条记录${failCount > 0 ? `，失败 ${failCount} 条` : ''}`);
+      loadArchivedScores();
+      selectedScores.value = [];
+    } else {
+      ElMessage.error('批量删除失败');
+    }
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      console.error('批量删除失败:', error);
+      ElMessage.error(`批量删除失败: ${error.message}`);
+    }
+  }
+};
+
+// 格式化评分项
+const formatScoreItems = (scores: any) => {
+  if (!scores || typeof scores !== 'object') return [];
+  
+  // 如果有AI评分的详细结果（score_details数组），直接使用
+  if (scores.score_details && Array.isArray(scores.score_details)) {
+    return scores.score_details.map((detail: any) => ({
+      name: detail.indicator,
+      score: detail.score,
+      max_score: detail.max_score,
+      percentage: detail.max_score ? (detail.score / detail.max_score) * 100 : 0,
+      reason: detail.reason || ''
+    }));
+  }
+  
+  // 否则使用旧格式（手动评分）
+  return Object.entries(scores)
+    .filter(([name]) => !['base_score', 'bonus_score', 'final_score', 'grade', 'veto_triggered', 'veto_reason', 'summary', 'scored_at'].includes(name))
+    .map(([name, score]: [string, any]) => ({
+      name,
+      score: score,
+      max_score: 10, // 假设满分为10，实际应从评分标准获取
+      percentage: (score / 10) * 100,
+      reason: ''
+    }));
+};
+
 // 获取得分标签类型
 const getScoreTagType = (score: number, totalScore: number) => {
   const percentage = (score / totalScore) * 100;
@@ -634,16 +955,179 @@ const getProgressColor = (percentage: number) => {
   return '#f56c6c';
 };
 
-// 格式化评分项
-const formatScoreItems = (scores: any) => {
-  if (!scores || typeof scores !== 'object') return [];
+// 获取等级文本
+const getGradeText = (score: number, totalScore: number) => {
+  const percentage = (score / totalScore) * 100;
+  if (percentage >= 90) return '优秀';
+  if (percentage >= 80) return '良好';
+  if (percentage >= 70) return '中等';
+  if (percentage >= 60) return '合格';
+  return '不合格';
+};
+
+// 格式化反馈内容（与EvaluationTaskListAdmin.vue中的相同）
+const formatFeedback = (feedback: string) => {
+  if (!feedback) return '';
   
-  return Object.entries(scores).map(([name, score]: [string, any]) => ({
-    name,
-    score: score,
-    max_score: 10, // 假设满分为10，实际应从评分标准获取
-    percentage: (score / 10) * 100
-  }));
+  // 替换【标题】为带样式的标题
+  let formatted = feedback.replace(/【([^】]+)】/g, '<h5 class="feedback-title">$1</h5>');
+  
+  // 替换 • 开头的列表项
+  formatted = formatted.replace(/^•\s+(.+)$/gm, '<li class="feedback-item">$1</li>');
+  
+  // 将连续的列表项包裹在 ul 标签中
+  formatted = formatted.replace(/(<li class="feedback-item">.*?<\/li>\s*)+/gs, '<ul class="feedback-list">$&</ul>');
+  
+  // 替换换行符为 <br>
+  formatted = formatted.replace(/\n/g, '<br>');
+  
+  // 包裹在段落中
+  formatted = `<div class="formatted-feedback">${formatted}</div>`;
+  
+  return formatted;
+};
+
+// 打印评分详情
+const printScoreDetail = () => {
+  if (!currentScore.value) return;
+  
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    ElMessage.error('无法打开打印窗口，请检查浏览器设置');
+    return;
+  }
+  
+  const scoreItems = formatScoreItems(currentScore.value.scores);
+  const scoreItemsHtml = scoreItems.map(item => `
+    <tr>
+      <td>${item.name}</td>
+      <td style="text-align: center;">${item.score}</td>
+      <td style="text-align: center;">${item.max_score}</td>
+      <td style="text-align: center;">${Math.round((item.score / item.max_score) * 100)}%</td>
+    </tr>
+  `).join('');
+  
+  const printContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>评分详情 - ${currentScore.value.teacher_name}</title>
+      <style>
+        body {
+          font-family: 'Microsoft YaHei', Arial, sans-serif;
+          padding: 20px;
+          line-height: 1.6;
+        }
+        h1 {
+          text-align: center;
+          color: #303133;
+          border-bottom: 2px solid #409eff;
+          padding-bottom: 10px;
+        }
+        h2 {
+          color: #606266;
+          margin-top: 30px;
+          border-left: 4px solid #409eff;
+          padding-left: 10px;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 20px 0;
+        }
+        th, td {
+          border: 1px solid #dcdfe6;
+          padding: 12px;
+          text-align: left;
+        }
+        th {
+          background-color: #f5f7fa;
+          font-weight: 600;
+        }
+        .info-table td:first-child {
+          font-weight: 600;
+          background-color: #f5f7fa;
+          width: 150px;
+        }
+        .score-highlight {
+          font-size: 24px;
+          font-weight: bold;
+          color: #67c23a;
+          text-align: center;
+          margin: 20px 0;
+        }
+        .feedback-box {
+          background-color: #f5f7fa;
+          padding: 15px;
+          border-radius: 4px;
+          border-left: 4px solid #409eff;
+          white-space: pre-wrap;
+        }
+        @media print {
+          body { padding: 0; }
+          button { display: none; }
+        }
+      </style>
+    </head>
+    <body>
+      <h1>教师评分详情报告</h1>
+      
+      <h2>基本信息</h2>
+      <table class="info-table">
+        <tr><td>归档ID</td><td>${currentScore.value.archive_id}</td></tr>
+        <tr><td>任务ID</td><td>${currentScore.value.task_id}</td></tr>
+        <tr><td>教师ID</td><td>${currentScore.value.teacher_id}</td></tr>
+        <tr><td>教师姓名</td><td>${currentScore.value.teacher_name}</td></tr>
+        <tr><td>考评表</td><td>${currentScore.value.template_name}</td></tr>
+        <tr><td>学期</td><td>${currentScore.value.semester}</td></tr>
+        <tr><td>评分时间</td><td>${currentScore.value.scored_at}</td></tr>
+        <tr><td>归档时间</td><td>${currentScore.value.archived_at}</td></tr>
+      </table>
+      
+      <h2>得分情况</h2>
+      <div class="score-highlight">
+        总分: ${currentScore.value.score} / ${currentScore.value.total_score} 
+        (${Math.round((currentScore.value.score / currentScore.value.total_score) * 100)}%)
+        <br>
+        等级: ${getGradeText(currentScore.value.score, currentScore.value.total_score)}
+      </div>
+      
+      <h2>各项得分明细</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>评分项</th>
+            <th style="text-align: center;">得分</th>
+            <th style="text-align: center;">满分</th>
+            <th style="text-align: center;">得分率</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${scoreItemsHtml}
+        </tbody>
+      </table>
+      
+      ${currentScore.value.feedback ? `
+        <h2>评分反馈</h2>
+        <div class="feedback-box">${currentScore.value.feedback}</div>
+      ` : ''}
+      
+      <div style="margin-top: 40px; text-align: center; color: #909399; font-size: 12px;">
+        <p>打印时间: ${new Date().toLocaleString()}</p>
+        <p>教研室数据管理平台 - 评分归档系统</p>
+      </div>
+      
+      <div style="text-align: center; margin-top: 20px;">
+        <button onclick="window.print()" style="padding: 10px 30px; font-size: 16px; cursor: pointer;">打印</button>
+        <button onclick="window.close()" style="padding: 10px 30px; font-size: 16px; cursor: pointer; margin-left: 10px;">关闭</button>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  printWindow.document.write(printContent);
+  printWindow.document.close();
 };
 
 // 归档策略配置
@@ -953,6 +1437,43 @@ onMounted(async () => {
   font-weight: 600;
 }
 
+.detail-card {
+  margin-bottom: 20px;
+}
+
+.detail-card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.detail-label {
+  font-weight: 600;
+  background-color: #f5f7fa;
+}
+
+.score-summary-row {
+  margin-bottom: 20px;
+}
+
+.grade-display {
+  text-align: center;
+}
+
+.grade-label {
+  font-size: 14px;
+  color: #909399;
+  margin-bottom: 8px;
+}
+
+.grade-tag {
+  font-size: 18px;
+  padding: 8px 20px;
+  font-weight: bold;
+}
+
 .score-items {
   margin-top: 20px;
 }
@@ -965,5 +1486,74 @@ onMounted(async () => {
   margin: 0;
   line-height: 1.6;
   color: #606266;
+}
+
+.feedback-content {
+  padding: 20px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #409eff;
+  line-height: 1.8;
+}
+
+/* 结构化反馈样式 */
+.structured-feedback .formatted-feedback {
+  line-height: 1.8;
+}
+
+.structured-feedback .feedback-title {
+  margin: 1.5rem 0 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+}
+
+.structured-feedback .feedback-title:first-child {
+  margin-top: 0;
+}
+
+.structured-feedback .feedback-list {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+  list-style: none;
+}
+
+.criterion-reason {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background-color: #ffffff;
+  border-radius: 4px;
+  border-left: 3px solid #409eff;
+}
+
+.criterion-reason .el-text {
+  line-height: 1.6;
+  display: block;
+}
+.structured-feedback .feedback-item {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+  position: relative;
+  color: #424242;
+  line-height: 1.8;
+}
+
+.structured-feedback .feedback-item::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: #409eff;
+  font-weight: bold;
+  font-size: 1.2em;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 </style>

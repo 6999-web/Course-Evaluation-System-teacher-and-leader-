@@ -561,10 +561,9 @@ const handleSubmitReview = async () => {
   try {
     await (reviewFormRef.value as any).validate()
     
-    await reviewAppeal({
-      id: reviewForm.id,
+    await reviewAppeal(reviewForm.id, {
       status: reviewForm.status,
-      feedback: reviewForm.feedback
+      review_comment: reviewForm.feedback
     })
     
     ElMessage.success('审核提交成功')
@@ -591,9 +590,8 @@ const handleSubmitReply = async () => {
   try {
     await (replyFormRef.value as any).validate()
     
-    await replyAppeal({
-      id: replyForm.id,
-      reply: replyForm.reply
+    await replyAppeal(replyForm.id, {
+      reply_content: replyForm.reply
     })
     
     ElMessage.success('回复提交成功')
